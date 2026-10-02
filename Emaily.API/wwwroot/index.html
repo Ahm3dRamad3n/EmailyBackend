@@ -1,0 +1,98 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emaily | API Service</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700&family=Inter:wght@400;600&display=swap');
+
+        :root {
+            --primary-navy: #0b1120;
+            --accent-amber: #fbbf24;
+            --text-light: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        body {
+            background-color: var(--primary-navy);
+            color: var(--text-light);
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .brutalist-card {
+            background-color: #111827;
+            border: 2px solid var(--accent-amber);
+            box-shadow: 8px 8px 0px var(--accent-amber);
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h1 {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--accent-amber);
+            font-size: 2rem;
+            margin-top: 0;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        p {
+            color: var(--text-muted);
+            line-height: 1.6;
+            margin-bottom: 30px;
+            font-size: 0.95rem;
+        }
+
+        .status-badge {
+            display: inline-block;
+            background-color: rgba(251, 191, 36, 0.1);
+            color: var(--accent-amber);
+            border: 1px solid var(--accent-amber);
+            padding: 4px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            margin-bottom: 20px;
+        }
+
+        .action-btn {
+            display: inline-block;
+            background-color: var(--accent-amber);
+            color: var(--primary-navy);
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            text-decoration: none;
+            padding: 12px 24px;
+            border: 2px solid var(--accent-amber);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .action-btn:hover {
+            background-color: transparent;
+            color: var(--accent-amber);
+            box-shadow: inset 0 0 0 1px var(--accent-amber);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="brutalist-card">
+        <div class="status-badge">● SYSTEM ONLINE</div>
+        <h1>API Engine</h1>
+        <p>You have reached the backend infrastructure for Emaily Cloud Services. This is a headless API endpoint and is not intended for direct browser access.</p>
+
+        <a href="https://emaily-plus.vercel.app" class="action-btn">
+            RETURN TO FRONTEND
+        </a>
+    </div>
+
+</body>
+</html>

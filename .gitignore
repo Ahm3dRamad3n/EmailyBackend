@@ -1,0 +1,58 @@
+﻿# ==========================================
+# 1. Visual Studio & Rider Folders / Files
+# ==========================================
+.vs/
+.idea/
+.vscode/
+*.user
+*.userosscache
+*.sln.docstates
+*.sln
+*.suo
+*.userprefs
+
+# ==========================================
+# 2. Build Results & .NET Core specific
+# ==========================================
+[Bb]in/
+[Oo]bj/
+project.lock.json
+project.assets.json
+*.xproj
+TestResults/
+*.TestResults
+
+# ==========================================
+# 3. Secrets & Environment Variables (CRITICAL)
+# ==========================================
+# يمنع رفع أي ملفات تحتوي على أسرار أو كلمات مرور
+.env
+.env.*
+appsettings.Development.json
+appsettings.Local.json
+*.secret.json
+secrets.json
+
+# ==========================================
+# 4. OS Generated Files
+# ==========================================
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ==========================================
+# 5. Logs & Databases & Local Uploads
+# ==========================================
+*.log
+*.mdf
+*.ldf
+*.ndf
+*.sqlite
+*.db
