@@ -1,35 +1,43 @@
 ﻿using Emaily.BLL.DTOs;
-using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.DTOs.Submission;
-using Emaily.BLL.Interfaces;
+using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.Helpers;
+using Emaily.BLL.Helpers.Interfaces;
+using Emaily.BLL.Interfaces;
 using Emaily.DAL.Entities;
 using Emaily.DAL.Interfaces;
+using Ganss.Xss;
+using System.IdentityModel.Tokens.Jwt;
+using Microsoft.IdentityModel.Tokens;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using System.Text;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
-using Microsoft.EntityFrameworkCore;
 using Google.Apis.Sheets.v4.Data;
 using Hangfire;
 using Hangfire.Server;
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Org.BouncyCastle.Asn1.Ocsp;
 using System;
+using System.Collections.Generic;
+using System.Diagnostics.Eventing.Reader;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
-using Ganss.Xss;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Http;
-using Emaily.BLL.Helpers.Interfaces;
-using System.Diagnostics.Eventing.Reader;
 
 namespace Emaily.BLL.Services
 {
@@ -447,7 +455,6 @@ namespace Emaily.BLL.Services
             if (string.IsNullOrEmpty(secretKey) || string.IsNullOrEmpty(token))
                 return false;
 
-            // 1. إرسال البيانات بشكل آمن ومحمي (URL Encoded)
             var content = new FormUrlEncodedContent(
             [
                 new KeyValuePair<string, string>("secret", secretKey),
@@ -466,88 +473,157 @@ namespace Emaily.BLL.Services
                 using var document = JsonDocument.Parse(jsonResult);
                 var root = document.RootElement;
 
-                // 2. التأكد من نجاح الطلب
                 if (!root.TryGetProperty("success", out var success) || !success.GetBoolean())
                     return false;
 
-                // 3. التحقق من النطاق (مهم جداً لمنع سرقة الـ Form)
-                // جوجل ترجع النطاق، نقارنه بالنطاق المسجل لدينا للمشروع
                 if (root.TryGetProperty("hostname", out var hostname))
                 {
-                    var actualHost = hostname.GetString();
-                    if (!allowedDomainsList.Contains(actualHost, StringComparer.OrdinalIgnoreCase))
+                    string? actualHost = hostname.GetString()?.ToLower();
+
+                    // تنظيف النطاقات المسموحة من http:// و https:// لضمان التطابق
+                    List<string> cleanAllowedDomains = allowedDomainsList
+                        .Select(d => d.Replace("http://", "").Replace("https://", "").Split(':')[0].ToLower())
+                        .ToList();
+
+                    if (actualHost == null || 
+                        ( cleanAllowedDomains.Count > 0
+                        && !cleanAllowedDomains.Contains(actualHost)))
                     {
                         return false;
                     }
                 }
 
-                // 4. فحص التقييم إذا كان الإصدار v3 (اختياري ولكن يُنصح به بشدة)
                 if (root.TryGetProperty("score", out var scoreElement))
                 {
                     var score = scoreElement.GetDouble();
-                    // لو التقييم أقل من 0.5، نعتبره روبوت
-                    if (score < 0.5) return false;
+                    if (score < 0.5)
+                        return false;
                 }
 
                 return true;
             }
-            catch
+            catch (Exception ex)
             {
-                _logger.LogCritical(new Log(userId, "Exception occurred during ReCaptcha verification.", null, null));
+                _logger.LogCritical(new Log(userId, $"Exception during ReCaptcha: {ex.Message}", null, null));
                 return false;
             }
         }
 
         private async Task<bool> VerifyAppCheckTokenAsync(Guid userId, string token, string? projectAppCheckSecret, string? expectedIssuer = null)
         {
-            if (string.IsNullOrEmpty(token) || string.IsNullOrEmpty(projectAppCheckSecret))
+            if (string.IsNullOrEmpty(token))
             {
                 return false;
             }
 
             var tokenHandler = new JwtSecurityTokenHandler();
 
-            // تحويل المفتاح السري الخاص بالمشروع إلى مصفوفة بايتات
-            var key = Encoding.ASCII.GetBytes(projectAppCheckSecret);
-
-            var validationParameters = new TokenValidationParameters
-            {
-                // 1. التحقق من التوقيع (أهم خطوة لمنع التزوير)
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = new SymmetricSecurityKey(key),
-
-                // 2. التحقق من وقت الانتهاء (Expiration)
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.Zero, // إلغاء وقت السماح الإضافي لزيادة الأمان
-
-                // 3. التحقق من المُصدر (اختياري ولكن يُنصح به بقوة)
-                ValidateIssuer = !string.IsNullOrEmpty(expectedIssuer),
-                ValidIssuer = expectedIssuer,
-
-                // 4. تعطيل التحقق من الجمهور (Audience) إلا لو العميل حدده
-                ValidateAudience = false
-            };
-
             try
             {
-                // الدالة دي هترمي Exception لو التوكن مزور، أو منتهي، أو المفتاح غلط
-                var principal = await tokenHandler.ValidateTokenAsync(token, validationParameters);
+                if (!tokenHandler.CanReadToken(token))
+                {
+                    return false;
+                }
+                var jwtToken = tokenHandler.ReadJwtToken(token);
 
-                // إذا نجح التحقق، نرجع true
-                return principal.IsValid;
+                var algorithm = jwtToken.Header.Alg;
+                var tokenIssuer = jwtToken.Issuer;
+
+                var validationParameters = new TokenValidationParameters
+                {
+                    ValidateLifetime = true,
+                    ClockSkew = TimeSpan.Zero,
+                    ValidateAudience = false
+                };
+
+                // 1. التعامل مع التشفير المتماثل (Custom App)
+                if (algorithm == SecurityAlgorithms.HmacSha256)
+                {
+                    if (string.IsNullOrEmpty(projectAppCheckSecret))
+                    {
+                        return false;
+                    }
+
+                    validationParameters.ValidateIssuerSigningKey = true;
+                    validationParameters.IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(projectAppCheckSecret));
+
+                    validationParameters.ValidateIssuer = !string.IsNullOrEmpty(expectedIssuer);
+                    if (validationParameters.ValidateIssuer)
+                    {
+                        validationParameters.ValidIssuer = expectedIssuer;
+                    }
+
+                    var principal = await tokenHandler.ValidateTokenAsync(token, validationParameters);
+                    return principal.IsValid;
+                }
+                // 2. التعامل مع المزودين الخارجيين (RS256)
+
+                else if (algorithm == SecurityAlgorithms.RsaSha256)
+                {
+
+                    if (string.IsNullOrEmpty(tokenIssuer))
+                    {
+                        return false;
+                    }
+
+                    // توجيه ذكي لـ Firebase
+                    if (tokenIssuer.Contains("firebaseappcheck.googleapis.com"))
+                    {
+                        var jwksUri = "https://firebaseappcheck.googleapis.com/v1/jwks";
+
+                        using var httpClient = new HttpClient();
+                        var jsonJwks = await httpClient.GetStringAsync(jwksUri);
+
+                        // جلب المفاتيح العامة مباشرة
+                        var jwks = new JsonWebKeySet(jsonJwks);
+
+                        validationParameters.ValidateIssuerSigningKey = true;
+                        validationParameters.IssuerSigningKeys = jwks.GetSigningKeys();
+                        validationParameters.ValidateIssuer = true;
+                        validationParameters.ValidIssuer = tokenIssuer; // أو رابط فايربيز الثابت حسب رغبتك
+
+                        var principal = await tokenHandler.ValidateTokenAsync(token, validationParameters);
+                        return principal.IsValid;
+                    }
+                    else
+                    {
+                        // باقي المزودين القياسيين (Auth0, AWS, etc.)
+                        var discoveryEndpoint = $"{tokenIssuer.TrimEnd('/')}/.well-known/openid-configuration";
+
+                        var configurationManager = new Microsoft.IdentityModel.Protocols.ConfigurationManager<OpenIdConnectConfiguration>(
+                            discoveryEndpoint,
+                            new OpenIdConnectConfigurationRetriever(),
+                            new HttpDocumentRetriever { RequireHttps = true });
+
+                        var openIdConfig = await configurationManager.GetConfigurationAsync(CancellationToken.None);
+
+                        validationParameters.ValidateIssuerSigningKey = true;
+                        validationParameters.IssuerSigningKeys = openIdConfig.SigningKeys;
+                        validationParameters.ValidateIssuer = true;
+                        validationParameters.ValidIssuer = tokenIssuer;
+
+                        var principal = await tokenHandler.ValidateTokenAsync(token, validationParameters);
+                        return principal.IsValid;
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning(new Log(userId, $"Unsupported JWT Algorithm: {algorithm}", null, null));
+                    return false;
+                }
             }
             catch (SecurityTokenException)
             {
-                _logger.LogWarning(new Log(userId, "Invalid App Check token.", null, null));
+                _logger.LogWarning(new Log(userId, "Invalid or Expired App Check token.", null, null));
                 return false;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                _logger.LogCritical(new Log(userId, "Exception occurred during App Check token verification.", null, null));
+                _logger.LogCritical(new Log(userId, $"Exception during App Check verification: {ex.Message}", null, null));
                 return false;
             }
         }
-
+      
         public Result<(string finalSubject, string finalHtmlBody)> GetFinalSubjectAndBody(string Subject, string ContentHtml, Dictionary<string, string> variables)
         {
             string finalSubject = Subject;
