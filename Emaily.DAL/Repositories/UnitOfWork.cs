@@ -8,6 +8,7 @@ namespace Emaily.DAL.Repositories
     {
         private readonly EmailyDbContext _context;
 
+        // Generic repositories for each entity
         public IGenericRepository<User> Users { get; private set; }
         public IGenericRepository<Project> Projects { get; private set; }
         public IGenericRepository<Service> Services { get; private set; }
@@ -26,6 +27,12 @@ namespace Emaily.DAL.Repositories
         public IGenericRepository<Integration> Integrations { get; private set; }
         public IGenericRepository<Invoice> Invoices { get; private set; }
         public IGenericRepository<SystemLog> SystemLogs { get; private set; }
+
+        // Specific repositories
+        public IUserRepository UserRepository { get; private set; }
+        //public IProjectRepository ProjectRepository { get; private set; }
+        //public IServiceRepository ServiceRepository { get; private set; }   
+        //public ITemplateRepository TemplateRepository { get; private set; }
 
         public UnitOfWork(EmailyDbContext context)
         {
@@ -48,6 +55,11 @@ namespace Emaily.DAL.Repositories
             Integrations = new GenericRepository<Integration>(_context);
             Invoices = new GenericRepository<Invoice>(_context);
             SystemLogs = new GenericRepository<SystemLog>(_context);
+
+            UserRepository = new UserRepository(_context);
+            //ProjectRepository = new ProjectRepository(_context);
+            //ServiceRepository = new ServiceRepository(_context);
+            //TemplateRepository = new TemplateRepository(_context);
         }
 
         public async Task<int> CompleteAsync()

@@ -270,7 +270,7 @@ namespace Emaily.BLL.Helpers
             <div style="padding: 30px; color: {TextPrimary}; font-size: 15px; line-height: 1.6;">
 
                 <p style="margin-top: 0;">
-                    To continue your registration process for <strong>{email}</strong>,
+                    To continue your process for <strong>{email}</strong>,
                     please verify your email address by clicking the button below.
                 </p>
 

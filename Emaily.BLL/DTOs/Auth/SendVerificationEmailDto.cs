@@ -12,5 +12,8 @@ namespace Emaily.BLL.DTOs.Auth
     {
         [ValidEmail]
         public string Email { get; set; } = null!;
+
+        [RequiredText(["register", "account"])]
+        public string Target { get; set; } = null!;
     }
 }

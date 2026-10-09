@@ -6,6 +6,7 @@ namespace Emaily.DAL.Interfaces
 {
     public interface IUnitOfWork : IDisposable
     {
+        // Generic repositories for each entity
         IGenericRepository<User> Users { get; }
         IGenericRepository<Project> Projects { get; }
         IGenericRepository<Service> Services { get; }
@@ -24,6 +25,12 @@ namespace Emaily.DAL.Interfaces
         IGenericRepository<Integration> Integrations { get; }
         IGenericRepository<Invoice> Invoices { get; }
         IGenericRepository<SystemLog> SystemLogs { get; }
+
+        // Specific repositories for entities that require custom methods
+        IUserRepository UserRepository { get; }
+        //IProjectRepository ProjectRepository { get; }
+        //IServiceRepository ServiceRepository { get; }
+        //ITemplateRepository TemplateRepository { get; }
 
         Task<int> CompleteAsync(); // هذه الدالة الوحيدة التي ستستدعي SaveChangesAsync
     }

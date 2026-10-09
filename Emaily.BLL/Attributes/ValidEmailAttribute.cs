@@ -1,10 +1,14 @@
 ﻿using System.ComponentModel.DataAnnotations;
+using System.Text.RegularExpressions;
 
 namespace Emaily.BLL.Attributes
 {
-    public class ValidEmailAttribute : ValidationAttribute
+    public partial class ValidEmailAttribute : ValidationAttribute
     {
         private readonly bool _allowNull;
+
+        // تعبير نمطي صارم يقبل فقط الإيميلات الصافية بدون مسافات أو أسماء مدمجة
+        private static readonly Regex StrictEmailRegex = GenerateStrictEmailRegex();
 
         public ValidEmailAttribute(bool AllowNull = false)
         {
@@ -28,9 +32,7 @@ namespace Emaily.BLL.Attributes
 
             foreach (var singleEmail in emails)
             {
-                // التحقق من صيغة الإيميل باستخدام كلاس .NET الجاهز
-                var emailValidator = new EmailAddressAttribute();
-                if (!emailValidator.IsValid(singleEmail))
+                if (!StrictEmailRegex.IsMatch(singleEmail))
                 {
                     return new ValidationResult($"Invalid email format: {singleEmail}");
                 }
@@ -38,5 +40,8 @@ namespace Emaily.BLL.Attributes
 
             return ValidationResult.Success;
         }
+
+        [GeneratedRegex(@"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", RegexOptions.Compiled)]
+        private static partial Regex GenerateStrictEmailRegex();
     }
 }

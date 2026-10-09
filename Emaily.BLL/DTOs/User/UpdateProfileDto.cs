@@ -15,5 +15,7 @@ namespace Emaily.BLL.DTOs.User
 
         [ValidEmail, StringLength(255)]
         public string DevNotificationEmail { get; set; } = null!;
+
+        public string? Token { get; set; }
     }
 }

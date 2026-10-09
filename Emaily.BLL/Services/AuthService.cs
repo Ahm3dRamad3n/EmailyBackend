@@ -1,4 +1,5 @@
 ﻿using Azure.Core;
+using Azure.Storage.Blobs.Models;
 using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Auth;
 using Emaily.BLL.Helpers;
@@ -15,26 +16,26 @@ using MimeKit;
 using System;
 using System.IdentityModel.Tokens.Jwt;
 using System.Threading.Tasks;
+using static Emaily.BLL.Helpers.Services.TokenService;
 
 namespace Emaily.BLL.Services
 {
-    public class AuthService(IUnitOfWork uow, ITokenService tokenService, IConfiguration configration, ILoggerService logger, IEmailSenderService emailSenderService, IMemoryCache cache) : IAuthService
+    public class AuthService(IUnitOfWork uow, ITokenService tokenService, IConfiguration configration, ILoggerService logger, IEmailSenderService emailSenderService) : IAuthService
     {
         private readonly IUnitOfWork _uow = uow;
         private readonly ITokenService _tokenService = tokenService;
-        private readonly IMemoryCache _cache = cache;
         private readonly ILoggerService _logger = logger;
         private readonly IEmailSenderService _emailSenderService = emailSenderService;
         private readonly string _frontendUrl = configration["ClientUrl"] ?? throw new ArgumentNullException("ClientUrl is not configured in appsettings.");
 
-        public async Task<bool> SendVerificationEmailAsync(string email)
+        public async Task<bool> SendVerificationEmailAsync(string email, string target)
         {
             var user = await _uow.Users.FindAsync(u => u.Email == email && !u.IsDeleted);
             if (user != null) return true; // حماية ضد Email Enumeration
 
             var verificationToken = _tokenService.GenerateEmailVerificationToken(email);
             var urlEncodedToken = Uri.EscapeDataString(verificationToken);
-            var verificationLink = $"{_frontendUrl}/src/register.html?token={urlEncodedToken}";
+            var verificationLink = $"{_frontendUrl}/src/{target}.html?token={urlEncodedToken}";
 
             string fullHtmlEmail = EmailTemplateBuilder.GenerateEmailVerificationTemplate(
                 email,
@@ -49,11 +50,14 @@ namespace Emaily.BLL.Services
             }
             return true;
         }
+    
         public async Task<Result<AuthResponseDto>> RegisterAsync(RegisterDto dto)
         {
             string? emailFromToken = _tokenService.ValidateEmailVerificationToken(dto.Token);
             if (string.IsNullOrEmpty(emailFromToken))
                 return Result<AuthResponseDto>.Failure("Invalid or expired verification token.", StatusCodes.Status400BadRequest);
+
+            _tokenService.RevokeToken(dto.Token, TokenPurpose.EmailVerification); // إلغاء صلاحية التوكن بعد استخدامه
 
             var existingUser = await _uow.Users.FindAsync(u => u.Email == emailFromToken && !u.IsDeleted);
             if (existingUser != null)
@@ -75,7 +79,15 @@ namespace Emaily.BLL.Services
             };
 
             // 1. إضافة المستخدم للسياق (لم يتم الحفظ في الداتا بيز بعد)
-            await _uow.Users.AddAsync(newUser);
+            try
+            {
+                await _uow.Users.AddAsync(newUser);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogCritical(new Log(Guid.Empty, $"Failed to add new user {newUser.Email}. Error: {ex.Message}"));
+                return Result<AuthResponseDto>.Failure("Your email has just been registered by another user. Please try logging in.", StatusCodes.Status409Conflict);
+            }
 
             // 2. البحث عن الخطة المجانية (نفترض أن الخطة المجانية سعرها 0)
             var freePlan = await _uow.Plans.FindAsync(p => p.MonthlyPrice == 0 && p.IsActive);
@@ -147,32 +159,11 @@ namespace Emaily.BLL.Services
                 await _uow.CompleteAsync();
             }
 
-            if (!string.IsNullOrEmpty(accessToken))
-            {
-                var handler = new JwtSecurityTokenHandler();
-                if (handler.CanReadToken(accessToken))
-                {
-                    var jwtToken = handler.ReadJwtToken(accessToken);
-                    var expiryDate = jwtToken.ValidTo;
-
-                    // حساب الوقت المتبقي لانتهاء التوكن
-                    var timeRemaining = expiryDate - DateTime.UtcNow;
-
-                    if (timeRemaining > TimeSpan.Zero)
-                    {
-                        // إضافة التوكن للقائمة السوداء في الذاكرة (سينحذف تلقائياً بعد انتهاء وقته)
-                        _cache.Set(
-                            $"blacklist:{accessToken}",
-                            true,
-                            new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = timeRemaining }
-                        );
-                    }
-                }
-            }
+            _tokenService.RevokeToken(accessToken, TokenPurpose.Login); // إلغاء صلاحية التوكن بعد استخدامه
 
             return true;
         }
-
+    
         public async Task<bool> ForgotPasswordAsync(string email)
         {
             var user = await _uow.Users.FindAsync(u => u.Email == email && !u.IsDeleted);
@@ -206,11 +197,12 @@ namespace Emaily.BLL.Services
             // 1. التحقق من التوكن واستخراج الإيميل أو الـ IpAddress (حسب طريقتك في TokenService)
             // يجب أن تتأكد الدالة أن التوكن لم تنتهِ مدته (الـ 15 دقيقة) وأنه يخص هذا المستخدم
             var userIdString = _tokenService.ValidatePasswordResetToken(model.Token);
-
             if (string.IsNullOrEmpty(userIdString) || !Guid.TryParse(userIdString, out Guid userId))
             {
                 return false;
             }
+
+            _tokenService.RevokeToken(model.Token, TokenPurpose.PasswordReset); // إلغاء صلاحية التوكن بعد استخدامه
 
             // البحث بالـ IpAddress
             var user = await _uow.Users.FindAsync(u => u.Id == userId && !u.IsDeleted);
@@ -230,10 +222,13 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<bool> DeleteAccountAsync(Guid userId)
+        public async Task<bool> DeleteAccountAsync(Guid userId, string accessToken)
         {
+
             var user = await _uow.Users.FindAsync(u => u.Id == userId);
             if (user == null) return false;
+
+            _tokenService.RevokeToken(accessToken, TokenPurpose.Login); // إلغاء صلاحية التوكن بعد استخدامه
 
             user.IsDeleted = true;
             user.IsActive = false;

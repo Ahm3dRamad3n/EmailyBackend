@@ -27,6 +27,7 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPost]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> AddService([FromBody] CreateServiceDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -63,6 +64,7 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPut("{serviceId}/unlock")]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> UnlockService(string serviceId)
         {
             var result = await _serviceManager.UnlockServiceAsync(User.GetUserId(), serviceId);

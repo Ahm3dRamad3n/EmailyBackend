@@ -47,5 +47,6 @@ namespace Emaily.DAL.Interfaces
         Task AddRangeAsync(IEnumerable<T> entities);
         void Update(T entity);
         void Delete(T entity);
+
     }
 }

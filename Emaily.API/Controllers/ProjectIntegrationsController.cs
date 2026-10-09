@@ -27,9 +27,9 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPost]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> AddIntegration(string id, [FromBody] CreateIntegrationDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
             var result = await _integrationService.AddIntegrationAsync(User.GetUserId(), id, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);

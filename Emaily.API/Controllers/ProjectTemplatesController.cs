@@ -28,6 +28,7 @@ namespace Emaily.API.Controllers
 
         [HttpPost]
         [RequestSizeLimit(3 * 1024 * 1024)] // 3 MB
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> AddTemplate(string id, [FromBody] CreateTemplateDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);

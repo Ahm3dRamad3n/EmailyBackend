@@ -11,10 +11,11 @@ namespace Emaily.BLL.Helpers.Interfaces
 {
     public interface IAttachmentManager
     {
-        string Add(IFormFile file, AttachmentSource attachmentSource);
+        string? Add(IFormFile file, AttachmentSource attachmentSource);
         bool Delete(string fileUrl, AttachmentSource attachmentSource);
         IFormFile? ConvertToIFormFile(string fileUrl);
         Task<FileDto?> ConvertToFileDtoAsync(IFormFile? file);
         IFormFile? ConvertToIFormFile(FileDto? fileDto);
+        bool IsValidFileSignature(IFormFile? file);
     }
 }

@@ -26,6 +26,7 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPost]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> Create([FromBody] CreateProjectDto dto)
         {
             if (!ModelState.IsValid) return BadRequest(ModelState);
@@ -87,6 +88,7 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPut("{id}/unlock")]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> UnlockProject(string id)
         {
             var result = await _projectService.UnlockProjectAsync(User.GetUserId(), id);

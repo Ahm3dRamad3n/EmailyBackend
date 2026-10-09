@@ -46,6 +46,8 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPost("{id}/attachments")]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
+        [RequestSizeLimit(5 * 1024 * 1024)] // 5 MB
         public async Task<IActionResult> UploadAttachment(string id, IFormFile file)
         {
             var result = await _templateService.AddAttachmentAsync(User.GetUserId(), id, file);
@@ -71,6 +73,7 @@ namespace Emaily.API.Controllers
         }
 
         [HttpPut("{id}/unlock")]
+        [EnableRateLimiting("StrictUserCreationPolicy")]
         public async Task<IActionResult> UnlockTemplate(string id)
         {
             var result = await _templateService.UnlockTemplateAsync(User.GetUserId(), id);

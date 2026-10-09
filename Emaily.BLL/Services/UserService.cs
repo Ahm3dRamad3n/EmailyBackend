@@ -1,5 +1,6 @@
 ﻿using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.User;
+using Emaily.BLL.Helpers.Interfaces;
 using Emaily.BLL.Interfaces;
 using Emaily.DAL.Interfaces;
 using Microsoft.AspNetCore.Http;
@@ -8,9 +9,11 @@ using System.Threading.Tasks;
 
 namespace Emaily.BLL.Services
 {
-    public class UserService(IUnitOfWork uow) : IUserService
+    public class UserService(IUnitOfWork uow, ITokenService tokenService
+        ) : IUserService
     {
         private readonly IUnitOfWork _uow = uow;
+        private readonly ITokenService _tokenService = tokenService;
 
         public async Task<Result<UserProfileDto>> GetProfileAsync(Guid userId)
         {
@@ -34,6 +37,26 @@ namespace Emaily.BLL.Services
         {
             var user = await _uow.Users.FindAsync(u => u.Id == userId && !u.IsDeleted);
             if (user == null) return Result<UserProfileDto>.Failure("User not found.", StatusCodes.Status404NotFound);
+
+            if (user.DevNotificationEmail != dto.DevNotificationEmail)
+            {
+                if (string.IsNullOrEmpty(dto.Token))
+                {
+                    return Result<UserProfileDto>.Failure("Token is required to change the developer notification email.", StatusCodes.Status400BadRequest);
+                }
+                if (_tokenService.IsTokenRevoked(dto.Token, Helpers.Services.TokenService.TokenPurpose.EmailVerification))
+                {
+                    return Result<UserProfileDto>.Failure("Invalid token or expired for changing the developer notification email.", StatusCodes.Status400BadRequest);
+                }
+
+                _tokenService.RevokeToken(dto.Token, Helpers.Services.TokenService.TokenPurpose.EmailVerification);
+                
+                string? tokenEmail = _tokenService.ValidateEmailVerificationToken(dto.Token);
+                if (tokenEmail == null || tokenEmail != dto.DevNotificationEmail)
+                {
+                    return Result<UserProfileDto>.Failure("Invalid token or email mismatch for changing the developer notification email.", StatusCodes.Status400BadRequest);
+                }
+            }
 
             user.FullName = dto.FullName;
             user.DevNotificationEmail = dto.DevNotificationEmail;

@@ -168,7 +168,9 @@ namespace Emaily.BLL.Services
             if (currentAttachments.Count() >= plan.MaxAttachmentsPerTemplate)
                 return Result<TemplateAttachmentDto>.Failure($"You have reached the max attachments limit ({plan.MaxAttachmentsPerTemplate}) for this template.", StatusCodes.Status403Forbidden);
            
-            string url = _am.Add(file, AttachmentManager.AttachmentSource.Template);
+            string? url = _am.Add(file, AttachmentManager.AttachmentSource.Template);
+            if (url == null)
+                return Result<TemplateAttachmentDto>.Failure("Failed to upload the attachment. Please ensure the file is valid and try again.", StatusCodes.Status400BadRequest);
 
             var attachment = new TemplateAttachment
             {

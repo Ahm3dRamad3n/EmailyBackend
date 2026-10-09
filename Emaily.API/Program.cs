@@ -117,6 +117,18 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 2 // السماح بوضع طلبين في الطابور لو تعدى الحد لحظياً
             });
     });
+    options.AddPolicy("StrictUserCreationPolicy", httpContext =>
+    {
+        var userId = httpContext.User.GetUserIdString();
+        return RateLimitPartition.GetFixedWindowLimiter(userId, _ =>
+            new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 1, // السماح بطلب واحد فقط
+                Window = TimeSpan.FromSeconds(2), // كل ثانيتين (يمنع السكريبتات المزدوجة)
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            });
+    });
 });
 
 var secretKey = Environment.GetEnvironmentVariable("JWT_SECRET_KEY") ?? throw new Exception("JWT Secret Key is missing");

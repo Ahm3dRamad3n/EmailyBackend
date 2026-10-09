@@ -7,6 +7,7 @@ using Emaily.DAL.Interfaces;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
 using QuestPDF.Infrastructure;
@@ -19,10 +20,11 @@ using System.Threading.Tasks;
 
 namespace Emaily.BLL.Services
 {
-    public class BillingService(IUnitOfWork uow, IPlanManager planManager, IAttachmentManager attachmentManager
+    public class BillingService(IUnitOfWork uow, IPlanManager planManager, IAttachmentManager attachmentManager, ILoggerService Logger
         ) : IBillingService
     {
         private readonly IUnitOfWork _uow = uow;
+        private readonly ILoggerService _logger = Logger;
         private readonly IPlanManager _planManager = planManager;
         private readonly IAttachmentManager _am = attachmentManager;
 
@@ -121,6 +123,11 @@ namespace Emaily.BLL.Services
 
             IFormFile file =  GenerateInvoicePdfAsync(user, plan, newSubscription);
             var invoiceUrl = _am.Add(file, Helpers.Services.AttachmentManager.AttachmentSource.Invoice);
+            if (string.IsNullOrEmpty(invoiceUrl))
+            {
+                _logger.LogError(new Log(Guid.Empty, $"Failed to generate or upload the invoice PDF for user {userId} and subscription {newSubscription.Id}."));
+                return Result<bool>.Failure("Failed to generate or upload the invoice PDF.", StatusCodes.Status500InternalServerError);
+            }
 
 
             // 4. حفظ الرابط في قاعدة البيانات

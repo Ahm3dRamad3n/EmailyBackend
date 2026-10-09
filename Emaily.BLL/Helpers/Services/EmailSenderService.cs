@@ -128,10 +128,11 @@ namespace Emaily.BLL.Helpers.Services
                 includes: sp => sp.Include(s => s.ServiceAppPassword)
                                   .Include(s => s.ServiceApiKey)
                                   .Include(s => s.ServiceOauth));
+
             if (serviceProvider == null)
             {
-                var serviceProviderId = _uow.ProjectServices.SelectWhereAsync(selector: sp => sp.ServiceId, criteria: sp => dto.ServiceId == sp.ServiceId && sp.ProjectId == dto.ProjectId && !sp.Service.IsDeleted);
-                serviceProvider = await _uow.Services.FindAsync(sp => sp.Id == serviceProviderId.ToString(),
+                var serviceProviderId = _uow.ProjectServices.SelectWhereAsync(selector: sp => sp.ServiceId, criteria: sp => sp.ProjectId == dto.ProjectId && !sp.Service.IsDeleted);
+                serviceProvider = await _uow.Services.FindAsync(sp => sp.Id == serviceProviderId.Result.First(),
                     includes: sp => sp.Include(s => s.ServiceAppPassword)
                                       .Include(s => s.ServiceApiKey)
                                       .Include(s => s.ServiceOauth));

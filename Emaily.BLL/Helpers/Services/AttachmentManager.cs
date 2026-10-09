@@ -8,11 +8,12 @@ using Microsoft.Extensions.Configuration;
 
 namespace Emaily.BLL.Helpers.Services
 {
-    public class AttachmentManager(IConfiguration configuration, ILoggerService logger) : IAttachmentManager
+    public class AttachmentManager(IConfiguration configuration, ILoggerService logger) :  IAttachmentManager
     {
         private readonly ILoggerService _logger = logger;
         private readonly string _connectionString = configuration["BS_CONNECTION_STRING"] ??
                   throw new Exception("BS_CONNECTION_STRING is not configured in appsettings.json or environment variables.");
+        private readonly string[] AllowedExtensions = [".pdf", ".png", ".jpg", ".jpeg", ".docx"];
 
         public enum AttachmentSource
         {
@@ -30,10 +31,11 @@ namespace Emaily.BLL.Helpers.Services
             };
         }
 
-        public string Add(IFormFile file, AttachmentSource attachmentSource)
+        public string? Add(IFormFile file, AttachmentSource attachmentSource)
         {
-            if (file == null || file.Length == 0) throw new Exception("File is empty.");
-            if (file.Length > 10 * 1024 * 1024) throw new Exception("File exceeds 10MB limit.");
+            if (file == null || file.Length == 0) return null;
+            if (file.Length > 5 * 1024 * 1024) return null; // الحد الأقصى لحجم الملف 5 ميغابايت
+            if (!IsValidFileSignature(file)) return null; // التحقق من صحة توقيع الملف
 
             string containerName = GetContainerName(attachmentSource);
             var blobServiceClient = new BlobServiceClient(_connectionString);
@@ -113,7 +115,7 @@ namespace Emaily.BLL.Helpers.Services
 
         public async Task<FileDto?> ConvertToFileDtoAsync(IFormFile? file)
         {
-            if (file == null || file.Length == 0)
+            if (file == null || !IsValidFileSignature(file))
                 return null;
 
             using var memoryStream = new MemoryStream();
@@ -142,6 +144,39 @@ namespace Emaily.BLL.Helpers.Services
             };
 
             return formFile;
+        }
+
+        public bool IsValidFileSignature(IFormFile? file)
+        {
+            if (file == null || file.Length == 0)
+                return false;
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+
+            if (!AllowedExtensions.Contains(extension))
+                return false;
+
+            using var stream = file.OpenReadStream();
+            using var reader = new BinaryReader(stream);
+            var fileBytes = reader.ReadBytes(8);
+
+            if (fileBytes.Length == 0) return false;
+
+            return extension switch
+            {
+                ".png" => fileBytes.Take(8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }),
+
+                ".jpg" or ".jpeg" => fileBytes.Take(3).SequenceEqual(new byte[] { 0xFF, 0xD8, 0xFF }),
+
+                ".pdf" => fileBytes.Take(4).SequenceEqual(new byte[] { 0x25, 0x50, 0x44, 0x46 }), // تبدأ بـ %PDF
+
+                // ملفات DOCX هي في الواقع ملفات ZIP وتبدأ بحروف PK
+                ".docx" => fileBytes.Take(4).SequenceEqual(new byte[] { 0x50, 0x4B, 0x03, 0x04 }) ||
+                           fileBytes.Take(4).SequenceEqual(new byte[] { 0x50, 0x4B, 0x05, 0x06 }) ||
+                           fileBytes.Take(4).SequenceEqual(new byte[] { 0x50, 0x4B, 0x07, 0x08 }),
+
+                _ => false,
+            };
         }
 
         private static string GetContentType(string path)

@@ -1,6 +1,7 @@
 ﻿using Emaily.BLL.DTOs.Service;
 using Emaily.BLL.Helpers.Interfaces;
 using Emaily.DAL.Entities;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using System;
@@ -9,18 +10,27 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
+using static Emaily.BLL.Services.AuthService;
 
 namespace Emaily.BLL.Helpers.Services
 {
-    public class TokenService(IConfiguration configuration, ILoggerService logger) : ITokenService
+    public class TokenService(IConfiguration configuration, ILoggerService logger, IMemoryCache cache) : ITokenService
     {
         private readonly ILoggerService _logger = logger;
+        private readonly IMemoryCache _cache = cache;
         private readonly string _secretKey = configuration["JWT_SECRET_KEY"]
                 ?? throw new Exception("JWT_SECRET_KEY is missing in .env");
         private readonly string _issuer = configuration["JWT_ISSUER"]
                 ?? throw new Exception("JWT_ISSUER is missing in .env");
         private readonly string _audience = configuration["JWT_AUDIENCE"]
                 ?? throw new Exception("JWT_AUDIENCE is missing in .env");
+
+        public enum TokenPurpose
+        {
+            Login,
+            EmailVerification,
+            PasswordReset
+        }
 
         public string GenerateAccessToken(User user, out string jwtId)
         {
@@ -186,5 +196,43 @@ namespace Emaily.BLL.Helpers.Services
                 return null;
             }
         }
+
+        private string GetBlacklistKey(string accessToken, TokenPurpose purpose)
+        {
+            return purpose switch
+            {
+                TokenPurpose.Login => $"blacklist:{accessToken}",
+                TokenPurpose.EmailVerification => $"blacklist:email_verification:{accessToken}",
+                TokenPurpose.PasswordReset => $"blacklist:password_reset:{accessToken}",
+                _ => $"blacklist:{accessToken}"
+            };
+        }
+
+        public void RevokeToken(string accessToken, TokenPurpose purpose = TokenPurpose.Login)
+        {
+            if (string.IsNullOrEmpty(accessToken)) return;
+            var handler = new JwtSecurityTokenHandler();
+            if (!handler.CanReadToken(accessToken)) return;
+            var jwtToken = handler.ReadJwtToken(accessToken);
+            var expiryDate = jwtToken.ValidTo;
+            // حساب الوقت المتبقي لانتهاء التوكن
+            var timeRemaining = expiryDate - DateTime.UtcNow;
+            if (timeRemaining > TimeSpan.Zero)
+            {
+                // إضافة التوكن للقائمة السوداء في الذاكرة (سينحذف تلقائياً بعد انتهاء وقته)
+                _cache.Set(
+                    GetBlacklistKey(accessToken, purpose),
+                    true,
+                    new MemoryCacheEntryOptions { AbsoluteExpirationRelativeToNow = timeRemaining }
+                );
+            }
+        }
+
+        public bool IsTokenRevoked(string accessToken, TokenPurpose purpose = TokenPurpose.Login)
+        {
+            if (string.IsNullOrEmpty(accessToken)) return true;
+            return _cache.TryGetValue(GetBlacklistKey(accessToken, purpose), out _);
+        }
+
     }
 }

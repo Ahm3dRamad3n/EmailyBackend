@@ -1,19 +1,31 @@
-﻿using System.ComponentModel.DataAnnotations;
+﻿using System;
+using System.ComponentModel.DataAnnotations;
 
 namespace Emaily.BLL.Attributes
 {
+    [AttributeUsage(AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
     public class RequiredTextAttribute : ValidationAttribute
     {
-        public RequiredTextAttribute()
+        private string[]? _allowedValues = null;
+
+        public RequiredTextAttribute(params string[]? allowedValues)
         {
-            ErrorMessage = "This field is required and cannot be empty or whitespace only.";
+            _allowedValues = allowedValues;
         }
 
         protected override ValidationResult? IsValid(object? value, ValidationContext validationContext)
         {
-            if (value is not string text || string.IsNullOrWhiteSpace(text))
+            if (value == null || string.IsNullOrWhiteSpace(value.ToString()))
             {
-                return new ValidationResult(ErrorMessage);
+                return new ValidationResult("The field is required.");
+            }
+
+            if (_allowedValues != null && _allowedValues.Length > 0)
+            {
+                if (!_allowedValues.Contains(value.ToString()))
+                {
+                    return new ValidationResult("The value is not allowed.");
+                }
             }
 
             return ValidationResult.Success;

@@ -1,4 +1,5 @@
-﻿using Emaily.BLL.DTOs;
+﻿using Azure;
+using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Submission;
 using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.Helpers;
@@ -7,11 +8,6 @@ using Emaily.BLL.Interfaces;
 using Emaily.DAL.Entities;
 using Emaily.DAL.Interfaces;
 using Ganss.Xss;
-using System.IdentityModel.Tokens.Jwt;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using System.Text;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
 using Google.Apis.Sheets.v4;
@@ -23,17 +19,22 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Protocols;
+using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.IdentityModel.Tokens;
 using Org.BouncyCastle.Asn1.Ocsp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.IdentityModel.Tokens.Jwt;
+using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -53,6 +54,7 @@ namespace Emaily.BLL.Services
         private readonly string _jsonCredentials;
         private readonly string _botToken;
         private readonly dynamic[] _aiProviders;
+
 
         public SubmissionService(IUnitOfWork uow, IEmailSenderService emailSenderService, IConfiguration configuration, IHttpClientFactory httpClientFactory, ILoggerService logger, IBackgroundJobClient backgroundJobClient, IAttachmentManager attachmentManager)
         {
@@ -258,89 +260,105 @@ namespace Emaily.BLL.Services
             await _uow.Submissions.AddAsync(submission);
             await _uow.CompleteAsync();
 
-            var result = await CheckIfRemainingQuotaAsync(submission, user);
-            if (!result.IsSuccess) return result;
-
-            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(submission.Id, user.Id, Submission.Statuses.Sent, finalRecipientName, finalRecipientEmail, dto.Fields));
+            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(submission.Id, user.Id, Submission.Statuses.Sent, finalRecipientName, finalRecipientEmail, dto.Fields, CancellationToken.None));
 
             return Result<bool>.Success(true);
         }
 
-        public async Task ProcessInBackgroundAsync(Guid submissionId, Guid userId, string status, string? finalRecipientName, string recipientEmail, Dictionary<string, string> variables)
+        public async Task ProcessInBackgroundAsync(Guid submissionId, Guid userId, string status, string? finalRecipientName, string recipientEmail, Dictionary<string, string> variables, CancellationToken cancellationToken = default)
         {
+            int rowsAffected = await _uow.UserRepository.DecreaseQuotaAsync(userId);
+
             var user = await _uow.Users.FindAsync(u => u.Id == userId);
-            if (user == null)
-            {
-                _logger.LogError(new Log(userId, $"User {userId} not found for submission {submissionId}.", null, null));
-                return;
-            }
             var submission = await _uow.Submissions.FindAsync(s => s.Id == submissionId);
-            if (submission == null)
+
+            if (user == null || submission == null)
             {
-                _logger.LogError(new Log(userId, $"Submission {submissionId} not found.", null, null));
+                _logger.LogError(new Log(userId, $"User or Submission not found (SubmissionId: {submissionId}).", null, null));
                 return;
             }
+
+            if (rowsAffected == 0)
+            {
+                await ProcessQuotaExceededAsync(submission, user.Id, cancellationToken);
+                return;
+            }
+
             var template = await _uow.Templates.FindAsync(t => t.Id == submission.TemplateId, includes: t => t.Include(t => t.TemplateAttachments));
             if (template == null)
             {
-                _logger.LogError(new Log(userId, $"Template {submission.TemplateId} not found for submission {submission.Id}.", submission.ProjectId, null));
+                _logger.LogError(new Log(userId, $"Template not found.", submission.ProjectId, null));
+                await RefundQuotaAtomicallyAsync(userId, cancellationToken);
                 return;
             }
 
             var payloadJson = JsonSerializer.Serialize(variables);
+            bool isAutoReplyEnabled = false;
+            bool sendSuccess = false;
 
-            bool IsAutoReplyEnabled = false, SendSuccess = false;
+            // 💡 إضافة فكرتك: تتبع القوالب التي تم استخدامها لمنع التكرار الدائري
+            var visitedTemplateIds = new HashSet<string>();
+            visitedTemplateIds.Add(template.Id.ToString()); // أضف القالب الأول
+
             do
             {
-                IsAutoReplyEnabled = template.EnableAutoReply;
-
+                isAutoReplyEnabled = template.EnableAutoReply;
                 var result = GetFinalSubjectAndBody(template.Subject, template.ContentHtml, variables);
+
                 if (!result.IsSuccess)
                 {
-                    submission.Status = Submission.Statuses.Failed;
-                    submission.ErrorMessage = result.ErrorMessage;
-                    _uow.Submissions.Update(submission);
-                    await _uow.CompleteAsync();
-                    _logger.LogError(new Log(userId, $"Error processing submission {submission.Id}: {result.ErrorMessage}", submission.ProjectId, null));
+                    await HandleSubmissionFailureAsync(submission, result.ErrorMessage, userId, cancellationToken);
                     break;
                 }
 
                 string finalSubject = result.Data.finalSubject;
                 string finalHtmlBody = result.Data.finalHtmlBody;
 
-                List<string> Cc = string.IsNullOrEmpty(template.Cc) ? [] : [.. template.Cc.Split(',').Select(c => c.Trim())];
-                List<string> Bcc = string.IsNullOrEmpty(template.Bcc) ? [] : [.. template.Bcc.Split(',').Select(b => b.Trim())];
+                List<string> cc = string.IsNullOrEmpty(template.Cc) ? [] : [.. template.Cc.Split(',').Select(c => c.Trim())];
+                List<string> bcc = string.IsNullOrEmpty(template.Bcc) ? [] : [.. template.Bcc.Split(',').Select(b => b.Trim())];
 
-                SendSuccess = await ProcessSendEmailAsync(submission, user, template.ServiceId, template.TemplateAttachments, status, finalRecipientName, finalSubject, recipientEmail, finalHtmlBody, template.ReplyTo, Cc, Bcc);
+                sendSuccess = await ProcessSendEmailAsync(submission, user, template.ServiceId, template.TemplateAttachments, status, finalRecipientName, finalSubject, recipientEmail, finalHtmlBody, template.ReplyTo, cc, bcc, cancellationToken);
 
-                if (IsAutoReplyEnabled && SendSuccess)
+                if (isAutoReplyEnabled && sendSuccess && !string.IsNullOrEmpty(template.AutoReplyTemplateId))
                 {
-                    string? auotoReplyTemplateId = template.AutoReplyTemplateId;
-                    template = await _uow.Templates.FindAsync(t => t.Id == auotoReplyTemplateId && t.ProjectId == submission.ProjectId && t.IsActive && !t.IsDeleted, includes: t => t.Include(t => t.TemplateAttachments));
-                    if (template == null)
+                    var autoReplyId = template.AutoReplyTemplateId;
+
+                    // 💡 تطبيق فكرتك: فحص ما إذا كان القالب قد تم استخدامه مسبقاً في هذه الدورة
+                    if (visitedTemplateIds.Contains(autoReplyId))
                     {
-                        _logger.LogError(new Log(userId, $"Auto-reply template {auotoReplyTemplateId} not found or inactive for project {submission.ProjectId}, Submission {submission.Id}.", submission.ProjectId, null));
-                        break;
+                        _logger.LogWarning(new Log(userId, $"Circular auto-reply dependency detected! Template {autoReplyId} was already executed in this chain. Breaking loop to prevent infinite execution.", submission.ProjectId, null));
+
+                        submission.Status = Submission.Statuses.Failed;
+                        submission.ErrorMessage = "Auto-reply loop detected. The same template was triggered multiple times in a single submission chain.";
+                        _uow.Submissions.Update(submission);
+                        await _uow.CompleteAsync();
+
+                        break; // الخروج من الحلقة فوراً
                     }
 
-                    if (template.IsLocked)
+                    // إضافة القالب الجديد للسجل
+                    visitedTemplateIds.Add(autoReplyId);
+
+                    var nextTemplate = await _uow.Templates.FindAsync(t => t.Id == autoReplyId && t.ProjectId == submission.ProjectId && t.IsActive && !t.IsDeleted, includes: t => t.Include(t => t.TemplateAttachments));
+
+                    if (nextTemplate == null || nextTemplate.IsLocked)
                     {
-                        _logger.LogError(new Log(userId, $"Auto-reply template {auotoReplyTemplateId} is locked and cannot be used for project {submission.ProjectId}, Submission {submission.Id}.", submission.ProjectId, null));
+                        _logger.LogError(new Log(userId, $"Auto-reply template invalid or locked.", submission.ProjectId, null));
                         break;
                     }
 
                     submission = new Submission
                     {
                         Id = Guid.NewGuid(),
-                        ProjectId = template.ProjectId,
-                        TemplateId = template.Id,
-                        RecipientEmail = template.ToEmail,
-                        RecipientName = template.ToName,
-                        Subject = template.Subject,
-                        PayloadJson = template.DoSaveInHistory ? payloadJson : string.Empty,
-                        RawHtmlBody = template.DoSaveInHistory ? template.ContentHtml : string.Empty,
+                        ProjectId = nextTemplate.ProjectId,
+                        TemplateId = nextTemplate.Id,
+                        RecipientEmail = nextTemplate.ToEmail,
+                        RecipientName = nextTemplate.ToName,
+                        Subject = nextTemplate.Subject,
+                        PayloadJson = nextTemplate.DoSaveInHistory ? payloadJson : string.Empty,
+                        RawHtmlBody = nextTemplate.DoSaveInHistory ? nextTemplate.ContentHtml : string.Empty,
                         ReceivedAt = DateTime.UtcNow,
-                        IsPrivateData = !template.DoSaveInHistory,
+                        IsPrivateData = !nextTemplate.DoSaveInHistory,
                         Status = Submission.Statuses.Pending
                     };
 
@@ -350,21 +368,27 @@ namespace Emaily.BLL.Services
                     recipientEmail = submission.RecipientEmail;
                     finalRecipientName = submission.RecipientName;
 
-                    var response = await CheckIfRemainingQuotaAsync(submission, user);
-                    if (!response.IsSuccess)
+                    int innerRowsAffected = await _uow.UserRepository.DecreaseQuotaAsync(userId);
+
+                    if (innerRowsAffected == 0)
                     {
-                        _logger.LogError(new Log(userId, $"{response.ErrorCode}: {response.ErrorMessage}"));
+                        await ProcessQuotaExceededAsync(submission, userId, cancellationToken);
                         break;
                     }
 
-                    status = Submission.Statuses.Sent; // تحديث الحالة للرسالة التالية في حالة الرد التلقائي
+                    template = nextTemplate;
+                    status = Submission.Statuses.Sent;
                 }
-            } while (IsAutoReplyEnabled && SendSuccess);
+                else
+                {
+                    break;
+                }
+
+            } while (isAutoReplyEnabled && sendSuccess);
         }
 
-        private async Task<bool> ProcessSendEmailAsync(Submission submission, User user, string? serviceId, ICollection<TemplateAttachment> templateAttachments, string status, string? finalRecipientName, string finalSubject, string recipientEmail, string finalHtmlBody, string? ReplyTo, List<string> Cc, List<string> Bcc)
+        private async Task<bool> ProcessSendEmailAsync(Submission submission, User user, string? serviceId, ICollection<TemplateAttachment> templateAttachments, string status, string? finalRecipientName, string finalSubject, string recipientEmail, string finalHtmlBody, string? replyTo, List<string> cc, List<string> bcc, CancellationToken cancellationToken)
         {
-
             var sendDto = new SendEmailDto
             {
                 ProjectId = submission.ProjectId,
@@ -373,83 +397,87 @@ namespace Emaily.BLL.Services
                 ToName = finalRecipientName ?? "",
                 Subject = finalSubject,
                 Body = finalHtmlBody,
-                ReplyTo = ReplyTo,
-                Cc = Cc,
-                Bcc = Bcc,
+                ReplyTo = replyTo,
+                Cc = cc,
+                Bcc = bcc,
                 Attachments = [.. templateAttachments.Select(a => _am.ConvertToIFormFile(a.FileUrl))]
             };
 
             try
             {
-                var ResponseDto = await _emailSenderService.SendEmailAsync(sendDto);
-                if (ResponseDto.Success)
+                var responseDto = await _emailSenderService.SendEmailAsync(sendDto);
+                if (responseDto.Success)
                 {
-                    user.RemainingQuota -= 1;
-                    _uow.Users.Update(user);
-
-                    await ApplyAllIntegrations(submission, user.Id, submission.ProjectId, sendDto, ResponseDto);
-
+                    await ApplyAllIntegrations(submission, user.Id, submission.ProjectId, sendDto, responseDto);
                     submission.Status = status;
                     submission.SentAt = DateTime.UtcNow;
-                    
                 }
                 else
                 {
+                    await RefundQuotaAtomicallyAsync(user.Id, cancellationToken);
                     submission.Status = Submission.Statuses.Failed;
-                    submission.ErrorMessage = ResponseDto.ErrorMessage ?? "Unknown error during email sending.";
+                    submission.ErrorMessage = responseDto.ErrorMessage ?? "Unknown error during email sending.";
                 }
 
                 _uow.Submissions.Update(submission);
                 await _uow.CompleteAsync();
-
-                return ResponseDto.Success;
+                return responseDto.Success;
             }
             catch (Exception ex)
             {
+                await RefundQuotaAtomicallyAsync(user.Id, cancellationToken);
                 submission.Status = Submission.Statuses.Failed;
                 submission.ErrorMessage = $"Error during email sending: {ex.Message}";
                 _uow.Submissions.Update(submission);
                 await _uow.CompleteAsync();
 
-                _logger.LogCritical(new Log(user.Id, $"Critical error in background job for submission {submission.Id}: {ex.Message}", submission.ProjectId, ex.ToString()));
-                return false; 
+                _logger.LogCritical(new Log(user.Id, $"Critical error in background job: {ex.Message}", submission.ProjectId, ex.ToString()));
+                return false;
             }
         }
 
-        private async Task<Result<bool>> CheckIfRemainingQuotaAsync(Submission submission, User user)
+        private async Task HandleSubmissionFailureAsync(Submission submission, string error, Guid userId, CancellationToken cancellationToken)
         {
-            if (user.RemainingQuota <= 0)
-            {
-                var subscription = await _uow.Subscriptions.FindAsync(s => s.UserId == user.Id && s.Status == Subscription.Statuses.Active);
-                if (subscription == null)
-                {
-                    return Result<bool>.Failure("No active subscription found for the user.", StatusCodes.Status403Forbidden);
-                }
-                var plan = await _uow.Plans.FindAsync(p => p.Id == subscription.PlanId && p.IsActive);
-                if (plan == null)
-                {
-                    return Result<bool>.Failure("Plan associated with the subscription is not found or inactive.", StatusCodes.Status403Forbidden);
-                }
-
-                user.OverageEmails += 1;
-                _uow.Users.Update(user);
-                await _uow.CompleteAsync();
-                if (plan.Name == "Free")
-                {
-                    return Result<bool>.Failure("Quota exceeded for Free plan. Upgrade or resubscribe to continue sending emails.", StatusCodes.Status403Forbidden);
-                }
-                else
-                {
-                    submission.Status = Submission.Statuses.QuotaExceeded;
-                    submission.ErrorMessage = $"Quota exceeded for your plan. Submission blocked.";
-                    _uow.Submissions.Update(submission);
-                    await _uow.CompleteAsync();
-                    return Result<bool>.Failure("Quota exceeded for your plan. Submission blocked.", StatusCodes.Status403Forbidden);
-                }
-            }
-            return Result<bool>.Success(true);
+            await RefundQuotaAtomicallyAsync(userId, cancellationToken);
+            submission.Status = Submission.Statuses.Failed;
+            submission.ErrorMessage = error;
+            _uow.Submissions.Update(submission);
+            await _uow.CompleteAsync();
         }
 
+        private async Task RefundQuotaAtomicallyAsync(Guid userId, CancellationToken cancellationToken)
+        {
+            // إرجاع الحصة بطريقة ذرية لمنع أي Race condition
+            await _uow.UserRepository.IncreaseQuotaAsync(userId);
+        }
+
+        private async Task ProcessQuotaExceededAsync(Submission submission, Guid userId, CancellationToken cancellationToken)
+        {
+            var subscription = await _uow.Subscriptions.FindAsync(s => s.UserId == userId && s.Status == Subscription.Statuses.Active);
+            var plan = subscription != null ? await _uow.Plans.FindAsync(p => p.Id == subscription.PlanId && p.IsActive) : null;
+
+            if (subscription == null || plan == null)
+            {
+                _logger.LogError(new Log(userId, "No active subscription/plan found."));
+                return;
+            }
+
+            // زيادة ذرية لعداد التجاوز
+            await _uow.UserRepository.IncreaseOverageEmailsAsync(userId);
+               
+            if (plan.Name != "Free")
+            {
+                submission.Status = Submission.Statuses.QuotaExceeded;
+                submission.ErrorMessage = "Quota exceeded for your plan. Submission blocked.";
+                _uow.Submissions.Update(submission);
+            }
+            else {
+                // عدم حفظ أي بيانات للطلبات التي تجاوزت الحصة في الخطة المجانية
+                _uow.Submissions.Delete(submission);
+            }
+            await _uow.CompleteAsync();
+        }
+      
         private async Task<bool> VerifyRecaptchaAsync(Guid userId, string token, string? secretKey, List<string> allowedDomainsList)
         {
             if (string.IsNullOrEmpty(secretKey) || string.IsNullOrEmpty(token))
@@ -1046,14 +1074,11 @@ namespace Emaily.BLL.Services
                 ? []
                 : JsonSerializer.Deserialize<Dictionary<string, string>>(submission.PayloadJson) ?? [];
 
-            var result = await CheckIfRemainingQuotaAsync(submission, user);
-            if (!result.IsSuccess) return Result<SubmissionHistoryDto>.Failure(result.ErrorMessage, result.ErrorCode);
-
             submission.Status = Submission.Statuses.Pending; // تحديث الحالة إلى Pending قبل إعادة الإرسال
             _uow.Submissions.Update(submission);
             await _uow.CompleteAsync();
 
-            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(subGuid, userId, Submission.Statuses.Resent, submission.RecipientName, submission.RecipientEmail, variables));
+            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(subGuid, userId, Submission.Statuses.Resent, submission.RecipientName, submission.RecipientEmail, variables, CancellationToken.None));
 
             var submissionDto = new SubmissionHistoryDto
             {
