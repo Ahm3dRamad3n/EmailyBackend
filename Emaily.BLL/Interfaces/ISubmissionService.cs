@@ -12,6 +12,5 @@ namespace Emaily.BLL.Interfaces
         Task<Result<SubmissionDetailsDto>> GetSubmissionDetailsAsync(Guid userId, string submissionId);
         Task<Result<SubmissionHistoryDto>> RetrySubmissionAsync(Guid userId, string submissionId);
         Task<Result<string>> GetSubmissionStatusAsync(Guid userId, string submissionId);
-        Result<(string finalSubject, string finalHtmlBody)> GetFinalSubjectAndBody(string Subject, string ContentHtml, Dictionary<string, string> variables);
     }
 }

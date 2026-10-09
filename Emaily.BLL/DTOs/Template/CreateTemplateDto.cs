@@ -16,9 +16,9 @@ namespace Emaily.BLL.DTOs.Template
         public bool EnableAppCheck { get; set; }
         public string? Issuer { get; set; }
         public string? AppCheckSecret { get; set; }
-        [ValidEmail] public string ToEmail { get; set; } = null!;
+        [RequiredText] public string ToEmail { get; set; } = null!;
         public string? ToName { get; set; }
-        [ValidEmail(AllowNull: true)] public string? ReplyTo { get; set; }
+        public string? ReplyTo { get; set; }
         [ValidEmail(AllowNull: true)] public string? Bcc { get; set; }
         [ValidEmail(AllowNull: true)] public string? Cc { get; set; }
         public bool EnableAutoReply { get; set; }

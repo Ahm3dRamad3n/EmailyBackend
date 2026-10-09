@@ -1,4 +1,5 @@
 ﻿using Azure;
+using Emaily.BLL.Attributes;
 using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Submission;
 using Emaily.BLL.DTOs.Template;
@@ -19,22 +20,17 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Protocols;
-using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Protocols.OpenIdConnect;
-using Microsoft.IdentityModel.Tokens;
 using Microsoft.IdentityModel.Tokens;
 using Org.BouncyCastle.Asn1.Ocsp;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.Eventing.Reader;
 using System.IdentityModel.Tokens.Jwt;
-using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -260,12 +256,12 @@ namespace Emaily.BLL.Services
             await _uow.Submissions.AddAsync(submission);
             await _uow.CompleteAsync();
 
-            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(submission.Id, user.Id, Submission.Statuses.Sent, finalRecipientName, finalRecipientEmail, dto.Fields, CancellationToken.None));
+            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(submission.Id, user.Id, Submission.Statuses.Sent, finalRecipientName, finalRecipientEmail, dto.Fields));
 
             return Result<bool>.Success(true);
         }
 
-        public async Task ProcessInBackgroundAsync(Guid submissionId, Guid userId, string status, string? finalRecipientName, string recipientEmail, Dictionary<string, string> variables, CancellationToken cancellationToken = default)
+        public async Task ProcessInBackgroundAsync(Guid submissionId, Guid userId, string status, string? recipientName, string recipientEmail, Dictionary<string, string> variables)
         {
             int rowsAffected = await _uow.UserRepository.DecreaseQuotaAsync(userId);
 
@@ -280,7 +276,7 @@ namespace Emaily.BLL.Services
 
             if (rowsAffected == 0)
             {
-                await ProcessQuotaExceededAsync(submission, user.Id, cancellationToken);
+                await ProcessQuotaExceededAsync(submission, user.Id);
                 return;
             }
 
@@ -288,7 +284,7 @@ namespace Emaily.BLL.Services
             if (template == null)
             {
                 _logger.LogError(new Log(userId, $"Template not found.", submission.ProjectId, null));
-                await RefundQuotaAtomicallyAsync(userId, cancellationToken);
+                await RefundQuotaAtomicallyAsync(userId);
                 return;
             }
 
@@ -297,27 +293,26 @@ namespace Emaily.BLL.Services
             bool sendSuccess = false;
 
             // 💡 إضافة فكرتك: تتبع القوالب التي تم استخدامها لمنع التكرار الدائري
-            var visitedTemplateIds = new HashSet<string>();
-            visitedTemplateIds.Add(template.Id.ToString()); // أضف القالب الأول
+            var visitedTemplateIds = new HashSet<string>
+            {
+                template.Id.ToString() // أضف القالب الأول
+            };
 
             do
             {
                 isAutoReplyEnabled = template.EnableAutoReply;
-                var result = GetFinalSubjectAndBody(template.Subject, template.ContentHtml, variables);
+                var result = GetFinalEmailContent(template.Subject, template.ContentHtml, recipientName, recipientEmail, template.ReplyTo, variables);
 
                 if (!result.IsSuccess)
                 {
-                    await HandleSubmissionFailureAsync(submission, result.ErrorMessage, userId, cancellationToken);
+                    await HandleSubmissionFailureAsync(submission, result.ErrorMessage, userId);
                     break;
                 }
-
-                string finalSubject = result.Data.finalSubject;
-                string finalHtmlBody = result.Data.finalHtmlBody;
 
                 List<string> cc = string.IsNullOrEmpty(template.Cc) ? [] : [.. template.Cc.Split(',').Select(c => c.Trim())];
                 List<string> bcc = string.IsNullOrEmpty(template.Bcc) ? [] : [.. template.Bcc.Split(',').Select(b => b.Trim())];
 
-                sendSuccess = await ProcessSendEmailAsync(submission, user, template.ServiceId, template.TemplateAttachments, status, finalRecipientName, finalSubject, recipientEmail, finalHtmlBody, template.ReplyTo, cc, bcc, cancellationToken);
+                sendSuccess = await ProcessSendEmailAsync(submission, user, template.ServiceId, template.TemplateAttachments, status, result.Data.finalRecipientName, result.Data.finalSubject, result.Data.finalRecipientEmail, result.Data.finalHtmlBody, result.Data.finalReplyTo, cc, bcc);
 
                 if (isAutoReplyEnabled && sendSuccess && !string.IsNullOrEmpty(template.AutoReplyTemplateId))
                 {
@@ -366,13 +361,13 @@ namespace Emaily.BLL.Services
                     await _uow.CompleteAsync();
 
                     recipientEmail = submission.RecipientEmail;
-                    finalRecipientName = submission.RecipientName;
+                    recipientName = submission.RecipientName;
 
                     int innerRowsAffected = await _uow.UserRepository.DecreaseQuotaAsync(userId);
 
                     if (innerRowsAffected == 0)
                     {
-                        await ProcessQuotaExceededAsync(submission, userId, cancellationToken);
+                        await ProcessQuotaExceededAsync(submission, userId);
                         break;
                     }
 
@@ -387,7 +382,7 @@ namespace Emaily.BLL.Services
             } while (isAutoReplyEnabled && sendSuccess);
         }
 
-        private async Task<bool> ProcessSendEmailAsync(Submission submission, User user, string? serviceId, ICollection<TemplateAttachment> templateAttachments, string status, string? finalRecipientName, string finalSubject, string recipientEmail, string finalHtmlBody, string? replyTo, List<string> cc, List<string> bcc, CancellationToken cancellationToken)
+        private async Task<bool> ProcessSendEmailAsync(Submission submission, User user, string? serviceId, ICollection<TemplateAttachment> templateAttachments, string status, string? finalRecipientName, string finalSubject, string recipientEmail, string finalHtmlBody, string? replyTo, List<string> cc, List<string> bcc)
         {
             var sendDto = new SendEmailDto
             {
@@ -414,7 +409,7 @@ namespace Emaily.BLL.Services
                 }
                 else
                 {
-                    await RefundQuotaAtomicallyAsync(user.Id, cancellationToken);
+                    await RefundQuotaAtomicallyAsync(user.Id);
                     submission.Status = Submission.Statuses.Failed;
                     submission.ErrorMessage = responseDto.ErrorMessage ?? "Unknown error during email sending.";
                 }
@@ -425,7 +420,7 @@ namespace Emaily.BLL.Services
             }
             catch (Exception ex)
             {
-                await RefundQuotaAtomicallyAsync(user.Id, cancellationToken);
+                await RefundQuotaAtomicallyAsync(user.Id);
                 submission.Status = Submission.Statuses.Failed;
                 submission.ErrorMessage = $"Error during email sending: {ex.Message}";
                 _uow.Submissions.Update(submission);
@@ -436,22 +431,22 @@ namespace Emaily.BLL.Services
             }
         }
 
-        private async Task HandleSubmissionFailureAsync(Submission submission, string error, Guid userId, CancellationToken cancellationToken)
+        private async Task HandleSubmissionFailureAsync(Submission submission, string? error, Guid userId)
         {
-            await RefundQuotaAtomicallyAsync(userId, cancellationToken);
+            await RefundQuotaAtomicallyAsync(userId);
             submission.Status = Submission.Statuses.Failed;
             submission.ErrorMessage = error;
             _uow.Submissions.Update(submission);
             await _uow.CompleteAsync();
         }
 
-        private async Task RefundQuotaAtomicallyAsync(Guid userId, CancellationToken cancellationToken)
+        private async Task RefundQuotaAtomicallyAsync(Guid userId)
         {
             // إرجاع الحصة بطريقة ذرية لمنع أي Race condition
             await _uow.UserRepository.IncreaseQuotaAsync(userId);
         }
 
-        private async Task ProcessQuotaExceededAsync(Submission submission, Guid userId, CancellationToken cancellationToken)
+        private async Task ProcessQuotaExceededAsync(Submission submission, Guid userId)
         {
             var subscription = await _uow.Subscriptions.FindAsync(s => s.UserId == userId && s.Status == Subscription.Statuses.Active);
             var plan = subscription != null ? await _uow.Plans.FindAsync(p => p.Id == subscription.PlanId && p.IsActive) : null;
@@ -509,9 +504,7 @@ namespace Emaily.BLL.Services
                     string? actualHost = hostname.GetString()?.ToLower();
 
                     // تنظيف النطاقات المسموحة من http:// و https:// لضمان التطابق
-                    List<string> cleanAllowedDomains = allowedDomainsList
-                        .Select(d => d.Replace("http://", "").Replace("https://", "").Split(':')[0].ToLower())
-                        .ToList();
+                    List<string> cleanAllowedDomains = [.. allowedDomainsList.Select(d => d.Replace("http://", "").Replace("https://", "").Split(':')[0].ToLower())];
 
                     if (actualHost == null || 
                         ( cleanAllowedDomains.Count > 0
@@ -651,28 +644,48 @@ namespace Emaily.BLL.Services
                 return false;
             }
         }
-      
-        public Result<(string finalSubject, string finalHtmlBody)> GetFinalSubjectAndBody(string Subject, string ContentHtml, Dictionary<string, string> variables)
+
+        private static Result<(string finalSubject, string finalHtmlBody, string? finalRecipientName, string finalRecipientEmail, string? finalReplyTo)>
+     GetFinalEmailContent(string subject, string contentHtml, string? recipientName, string recipientEmail, string? replyTo, Dictionary<string, string> variables)
         {
-            string finalSubject = Subject;
-            string finalHtmlBody = ContentHtml;
+            string finalSubject = subject;
+            string finalHtmlBody = contentHtml;
+            string? finalRecipientName = recipientName;
+            string finalRecipientEmail = recipientEmail;
+            string? finalReplyTo = replyTo;
 
             if (variables != null && variables.Count > 0)
             {
                 foreach (var variable in variables)
                 {
-                    finalSubject = finalSubject.Replace($"{{{{{variable.Key}}}}}", variable.Value);
-                    finalHtmlBody = finalHtmlBody.Replace($"{{{{{variable.Key}}}}}", variable.Value);
+                    string placeholder = "{{" + variable.Key + "}}";
+
+                    finalRecipientEmail = finalRecipientEmail.Replace(placeholder, variable.Value);
+                    finalRecipientName = finalRecipientName?.Replace(placeholder, variable.Value);
+                    finalReplyTo = finalReplyTo?.Replace(placeholder, variable.Value);
+                    finalSubject = finalSubject.Replace(placeholder, variable.Value);
+                    finalHtmlBody = finalHtmlBody.Replace(placeholder, variable.Value);
                 }
             }
 
-            if (string.IsNullOrEmpty(finalHtmlBody))
-                return Result<(string, string)>.Failure("Final HTML body is empty after variable replacement.", StatusCodes.Status400BadRequest);
-            if (!HtmlSecurityValidator.IsHtmlSafe(finalHtmlBody))
-                return Result<(string, string)>.Failure("Final HTML body contains unsafe content after sanitization.", StatusCodes.Status403Forbidden);
-            return Result<(string, string)>.Success((finalSubject, finalHtmlBody));
-        }
+            var validEmailAttr = new ValidEmailAttribute(AllowNull: false);
+            if (!validEmailAttr.IsValid(finalRecipientEmail))
+                return Result<(string, string, string?, string, string?)>.Failure("Final recipient email is invalid after variable replacement.", StatusCodes.Status400BadRequest);
 
+            var validReplyToAttr = new ValidEmailAttribute(AllowNull: true);
+            if (!validReplyToAttr.IsValid(finalReplyTo))
+                return Result<(string, string, string?, string, string?)>.Failure("Final replyTo email is invalid after variable replacement.", StatusCodes.Status400BadRequest);
+
+            if (string.IsNullOrEmpty(finalHtmlBody))
+                return Result<(string, string, string?, string, string?)>.Failure("Final HTML body is empty after variable replacement.", StatusCodes.Status400BadRequest);
+
+            if (!HtmlSecurityValidator.IsHtmlSafe(finalHtmlBody))
+                return Result<(string, string, string?, string, string?)>.Failure("Final HTML body contains unsafe content after sanitization.", StatusCodes.Status403Forbidden);
+
+            return Result<(string FinalSubject, string FinalHtmlBody, string? FinalRecipientName, string FinalRecipientEmail, string? FinalReplyTo)>.Success(
+                (finalSubject, finalHtmlBody, finalRecipientName, finalRecipientEmail, finalReplyTo)
+            );
+        }
         private async Task ApplyAllIntegrations(Submission submission, Guid UserId, string ProjectId, SendEmailDto sendDto, SendEmailResponseDto ResponseDto)
         {
             var subscription = await _uow.Subscriptions.FindAsync(s => s.UserId == UserId && s.Status == Subscription.Statuses.Active,
@@ -1078,7 +1091,7 @@ namespace Emaily.BLL.Services
             _uow.Submissions.Update(submission);
             await _uow.CompleteAsync();
 
-            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(subGuid, userId, Submission.Statuses.Resent, submission.RecipientName, submission.RecipientEmail, variables, CancellationToken.None));
+            _backgroundJobClient.Enqueue(() => ProcessInBackgroundAsync(subGuid, userId, Submission.Statuses.Resent, submission.RecipientName, submission.RecipientEmail, variables));
 
             var submissionDto = new SubmissionHistoryDto
             {
