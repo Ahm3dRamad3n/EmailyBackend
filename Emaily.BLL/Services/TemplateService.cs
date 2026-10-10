@@ -17,11 +17,8 @@ namespace Emaily.BLL.Services
         private readonly IUnitOfWork _uow = uow;
         private readonly IAttachmentManager _am = attachmentManager;
 
-        public async Task<Result<IEnumerable<TemplateDto>>> GetProjectTemplatesAsync(Guid userId, string projectId)
+        public async Task<Result<IEnumerable<TemplateDto>>> GetProjectTemplatesAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<IEnumerable<TemplateDto>>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
             var templates = await _uow.Templates.SelectWhereAsync(selector: t => new TemplateDto
             {
                 Id = t.Id,
@@ -36,26 +33,23 @@ namespace Emaily.BLL.Services
             return Result<IEnumerable<TemplateDto>>.Success(templates);
         }
 
-        public async Task<Result<TemplateDetailsDto>> GetTemplateDetailsAsync(Guid userId, string templateId)
+        public async Task<Result<TemplateDetailsDto>> GetTemplateDetailsAsync(string templateId)
         {
-            var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted, includes: t => t.Include(x => x.TemplateAttachments));
+            var template = await _uow.Templates.FindAsync(t => t.Id == templateId, includes: t => t.Include(x => x.TemplateAttachments));
             if (template == null) return Result<TemplateDetailsDto>.Failure("Template not found.", StatusCodes.Status404NotFound);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<TemplateDetailsDto>.Failure("Access denied.", StatusCodes.Status403Forbidden);
 
             return Result<TemplateDetailsDto>.Success(MapToDetailsDto(template));
         }
 
-        public async Task<Result<TemplateDetailsDto>> CreateTemplateAsync(Guid userId, string projectId, CreateTemplateDto dto)
+        public async Task<Result<TemplateDetailsDto>> CreateTemplateAsync(string projectId, CreateTemplateDto dto)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return Result<TemplateDetailsDto>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
 
             if (project.IsLocked)
                 return Result<TemplateDetailsDto>.Failure("This project is locked due to plan limits. Please upgrade your plan to unlock it.", StatusCodes.Status403Forbidden);
 
-            var subscriptions = await _uow.Subscriptions.FindAllAsync(s => s.UserId == userId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow);
+            var subscriptions = await _uow.Subscriptions.FindAllAsync(s => s.UserId == project.UserId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow);
             var activeSubscription = subscriptions.OrderByDescending(s => s.CreatedAt).FirstOrDefault();
             if (activeSubscription == null)
                 return Result<TemplateDetailsDto>.Failure("No active subscription found.", StatusCodes.Status403Forbidden);
@@ -70,7 +64,7 @@ namespace Emaily.BLL.Services
 
             dto.ServiceId = await _uow.Services.CountAsync(s => s.Id == dto.ServiceId && !s.IsDeleted) > 0 ? dto.ServiceId : null;
 
-            if (!HtmlSecurityValidator.IsHtmlSafe(dto.ContentHtml))
+            if (!HtmlSecurityValidator.IsHtmlSafeIgnoreExpressions(dto.ContentHtml))
                 return Result<TemplateDetailsDto>.Failure("The HTML content contains unsafe elements or attributes.", StatusCodes.Status403Forbidden);
 
             var template = new Template
@@ -104,7 +98,7 @@ namespace Emaily.BLL.Services
             return Result<TemplateDetailsDto>.Success(MapToDetailsDto(template));
         }
 
-        public async Task<Result<TemplateDetailsDto>> UpdateTemplateAsync(Guid userId, string templateId, UpdateTemplateDto dto)
+        public async Task<Result<TemplateDetailsDto>> UpdateTemplateAsync(string templateId, UpdateTemplateDto dto)
         {
             var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted);
             if (template == null) return Result<TemplateDetailsDto>.Failure("Template not found.", StatusCodes.Status404NotFound);
@@ -112,12 +106,9 @@ namespace Emaily.BLL.Services
             if (template.IsLocked)
                 return Result<TemplateDetailsDto>.Failure("This template is locked due to plan limits. Please upgrade your plan to unlock it.", StatusCodes.Status403Forbidden);
 
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-                if (project == null) return Result<TemplateDetailsDto>.Failure("Access denied.", StatusCodes.Status403Forbidden);
-
             dto.ServiceId = await _uow.Services.CountAsync(s => s.Id == dto.ServiceId && !s.IsDeleted) > 0 ? dto.ServiceId : null;
 
-            if (!HtmlSecurityValidator.IsHtmlSafe(dto.ContentHtml))
+            if (!HtmlSecurityValidator.IsHtmlSafeIgnoreExpressions(dto.ContentHtml))
                 return Result<TemplateDetailsDto>.Failure("The HTML content contains unsafe elements or attributes.", StatusCodes.Status403Forbidden);
 
             template.ServiceId = dto.ServiceId;
@@ -151,9 +142,6 @@ namespace Emaily.BLL.Services
 
             if (template.IsLocked)
                 return Result<TemplateAttachmentDto>.Failure("This template is locked due to plan limits. Please upgrade your plan to unlock it.", StatusCodes.Status403Forbidden);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<TemplateAttachmentDto>.Failure("Access denied.", StatusCodes.Status403Forbidden);
 
             // التحقق من باقة المستخدم لعدد المرفقات
             var subscriptions = await _uow.Subscriptions.FindAllAsync(s => s.UserId == userId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow);
@@ -194,13 +182,10 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<bool> ToggleStatusAsync(Guid userId, string templateId, bool isActive)
+        public async Task<bool> ToggleStatusAsync(string templateId, bool isActive)
         {
             var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted);
             if (template == null) return false;
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return false;
 
             template.IsActive = isActive;
             _uow.Templates.Update(template);
@@ -208,13 +193,10 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<bool> DeleteTemplateAsync(Guid userId, string templateId)
+        public async Task<bool> DeleteTemplateAsync(string templateId)
         {
             var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted, includes: t => t.Include(x => x.TemplateAttachments));
             if (template == null) return false;
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return false;
 
             template.IsDeleted = true;
             template.IsActive = false;
@@ -231,17 +213,11 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<bool> DeleteAttachmentAsync(Guid userId, string templateId, string attachmentId)
+        public async Task<bool> DeleteAttachmentAsync(string attachmentId)
         {
-            var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted);
-            if (template == null) return false;
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return false;
-
             if (!Guid.TryParse(attachmentId, out var parsedId)) return false;
 
-            var attachment = await _uow.TemplateAttachments.FindAsync(a => a.Id == parsedId && a.TemplateId == templateId);
+            var attachment = await _uow.TemplateAttachments.FindAsync(a => a.Id == parsedId);
             if (attachment == null) return false;
 
             // حذف الملف الفيزيائي من السيرفر
@@ -252,24 +228,24 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<Result<bool>> UnlockTemplateAsync(Guid userId, string templateId)
+        public async Task<Result<bool>> UnlockTemplateAsync(string templateId)
         {
-            var template = await _uow.Templates.FindAsync(t => t.Id == templateId && !t.IsDeleted);
+            var template = await _uow.Templates.FindAsync(t => t.Id == templateId);
             if (template == null)
                 return Result<bool>.Failure("Template not found.", StatusCodes.Status404NotFound);
 
             if (!template.IsLocked)
                 return Result<bool>.Success(true);
 
-            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && p.UserId == userId && !p.IsDeleted && !p.IsLocked);
+            var project = await _uow.Projects.FindAsync(p => p.Id == template.ProjectId && !p.IsDeleted && !p.IsLocked);
             if (project == null)
                 return Result<bool>.Failure("Access denied or project is locked.", StatusCodes.Status403Forbidden);
 
-            int count = await _uow.Templates.CountAsync(t => !t.IsLocked && !t.IsDeleted && t.Project.UserId == userId);
+            int count = await _uow.Templates.CountAsync(t => !t.IsLocked && !t.IsDeleted && t.Project.UserId == project.UserId);
 
             var availableTemplatesList = await _uow.Subscriptions.SelectWhereAsync(
                 selector: s => s.Plan.MaxTemplates, 
-                criteria: s => s.UserId == userId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow,
+                criteria: s => s.UserId == project.UserId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow,
                 includes: q => q.Include(s => s.Plan)
             );
             int availableTemplates = availableTemplatesList.FirstOrDefault();
@@ -285,6 +261,7 @@ namespace Emaily.BLL.Services
 
             return Result<bool>.Success(true);
         }
+      
         private static TemplateDetailsDto MapToDetailsDto(Template t)
         {
             return new TemplateDetailsDto

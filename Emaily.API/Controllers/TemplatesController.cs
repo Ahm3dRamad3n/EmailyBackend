@@ -1,6 +1,8 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.Interfaces;
+using Emaily.DAL.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -11,72 +13,53 @@ using System.Threading.Tasks;
 
 namespace Emaily.API.Controllers
 {
-    [Route("api/templates")]
+    [Route("api/templates/{templateId}")]
     [ApiController]
     [Authorize]
     [EnableRateLimiting("perUser")]
+    [ServiceFilter(typeof(CheckTemplateOwnershipFilter))]
     public class TemplatesController(ITemplateService templateService) : ControllerBase
     {
         private readonly ITemplateService _templateService = templateService;
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetTemplateById(string id)
+        [HttpGet]
+        public async Task<IActionResult> GetTemplateById(string templateId)
         {
-            var template = await _templateService.GetTemplateDetailsAsync(User.GetUserId(), id);
+            var template = await _templateService.GetTemplateDetailsAsync(templateId);
             if (!template.IsSuccess) return StatusCode(template.ErrorCode, new { success = false, message = template.ErrorMessage });
             return Ok(template.Data);
         }
 
-        [HttpPut("{id}")]
+        [HttpPut]
         [RequestSizeLimit(3 * 1024 * 1024)] // 3 MB
-        public async Task<IActionResult> UpdateTemplate(string id, [FromBody] UpdateTemplateDto dto)
+        public async Task<IActionResult> UpdateTemplate(string templateId, [FromBody] UpdateTemplateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var result = await _templateService.UpdateTemplateAsync(User.GetUserId(), id, dto);
+            var result = await _templateService.UpdateTemplateAsync(templateId, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }
 
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> DeleteTemplate(string id)
+        [HttpDelete]
+        public async Task<IActionResult> DeleteTemplate(string templateId)
         {
-            var deleted = await _templateService.DeleteTemplateAsync(User.GetUserId(), id);
+            var deleted = await _templateService.DeleteTemplateAsync(templateId);
             if (!deleted) return NotFound(new { message = "Template not found or access denied." });
             return Ok(new { message = "Template deleted successfully." });
         }
 
-        [HttpPost("{id}/attachments")]
-        [EnableRateLimiting("StrictUserCreationPolicy")]
-        [RequestSizeLimit(5 * 1024 * 1024)] // 5 MB
-        public async Task<IActionResult> UploadAttachment(string id, IFormFile file)
+        [HttpPut("status")]
+        public async Task<IActionResult> ToggleStatus(string templateId, [FromBody] Emaily.BLL.DTOs.UpdateStatusDto dto)
         {
-            var result = await _templateService.AddAttachmentAsync(User.GetUserId(), id, file);
-            if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
-            return Ok(result.Data);
-        }
-
-        [HttpDelete("{id}/attachments/{attachmentId}")]
-        public async Task<IActionResult> DeleteAttachment(string id, string attachmentId)
-        {
-            var deleted = await _templateService.DeleteAttachmentAsync(User.GetUserId(), id, attachmentId);
-            if (!deleted) return NotFound(new { message = "Attachment not found or access denied." });
-            return Ok(new { message = "Attachment deleted successfully." });
-        }
-
-        [HttpPut("{id}/status")]
-        public async Task<IActionResult> ToggleStatus(string id, [FromBody] Emaily.BLL.DTOs.UpdateStatusDto dto)
-        {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var success = await _templateService.ToggleStatusAsync(User.GetUserId(), id, dto.IsActive);
+            var success = await _templateService.ToggleStatusAsync(templateId, dto.IsActive);
             if (!success) return NotFound(new { message = "Template not found or access denied." });
             return Ok(new { message = "Template status updated successfully." });
         }
 
-        [HttpPut("{id}/unlock")]
+        [HttpPut("unlock")]
         [EnableRateLimiting("StrictUserCreationPolicy")]
-        public async Task<IActionResult> UnlockTemplate(string id)
+        public async Task<IActionResult> UnlockTemplate(string templateId)
         {
-            var result = await _templateService.UnlockTemplateAsync(User.GetUserId(), id);
+            var result = await _templateService.UnlockTemplateAsync(templateId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(new { message = "Template unlocked successfully."});
         }

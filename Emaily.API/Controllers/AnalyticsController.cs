@@ -1,4 +1,5 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -24,10 +25,11 @@ namespace Emaily.API.Controllers
             return Ok(result);
         }
 
-        [HttpGet("projects/{id}")]
-        public async Task<IActionResult> GetProjectAnalytics(string id)
+        [HttpGet("projects/{projectId}")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> GetProjectAnalytics(string projectId)
         {
-            var result = await _analyticsService.GetProjectAnalyticsAsync(User.GetUserId(), id);
+            var result = await _analyticsService.GetProjectAnalyticsAsync(projectId);
             if (!result.IsSuccess)
                 return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);

@@ -646,7 +646,7 @@ namespace Emaily.BLL.Services
         }
 
         private static Result<(string finalSubject, string finalHtmlBody, string? finalRecipientName, string finalRecipientEmail, string? finalReplyTo)>
-     GetFinalEmailContent(string subject, string contentHtml, string? recipientName, string recipientEmail, string? replyTo, Dictionary<string, string> variables)
+            GetFinalEmailContent(string subject, string contentHtml, string? recipientName, string recipientEmail, string? replyTo, Dictionary<string, string> variables)
         {
             string finalSubject = subject;
             string finalHtmlBody = contentHtml;
@@ -686,6 +686,7 @@ namespace Emaily.BLL.Services
                 (finalSubject, finalHtmlBody, finalRecipientName, finalRecipientEmail, finalReplyTo)
             );
         }
+       
         private async Task ApplyAllIntegrations(Submission submission, Guid UserId, string ProjectId, SendEmailDto sendDto, SendEmailResponseDto ResponseDto)
         {
             var subscription = await _uow.Subscriptions.FindAsync(s => s.UserId == UserId && s.Status == Subscription.Statuses.Active,
@@ -987,13 +988,8 @@ namespace Emaily.BLL.Services
             }
         }
 
-        public async Task<Result<PagedResultDto<SubmissionHistoryDto>>> GetProjectSubmissionsAsync(Guid userId, string projectId, int page)
+        public async Task<Result<PagedResultDto<SubmissionHistoryDto>>> GetProjectSubmissionsAsync(string projectId, int page)
         {
-            // التحقق من ملكية المشروع
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<PagedResultDto<SubmissionHistoryDto>>.Failure("Project not found or access denied.", StatusCodes.Status404NotFound);
-
-            // جلب البيانات بالترقيم
             var (Items, TotalCount) = await _uow.Submissions.GetPagedAsync(s => s.ProjectId == projectId, page, _pageSize, orderBy: x => x.ReceivedAt, isDescending: true);
 
             return Result<PagedResultDto<SubmissionHistoryDto>>.Success(
@@ -1015,15 +1011,12 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<Result<SubmissionDetailsDto>> GetSubmissionDetailsAsync(Guid userId, string submissionId)
+        public async Task<Result<SubmissionDetailsDto>> GetSubmissionDetailsAsync(string submissionId)
         {
             if (!Guid.TryParse(submissionId, out var subGuid)) return Result<SubmissionDetailsDto>.Failure("Invalid Submission ID format.", StatusCodes.Status400BadRequest);
 
             var submission = await _uow.Submissions.FindAsync(s => s.Id == subGuid);
             if (submission == null) return Result<SubmissionDetailsDto>.Failure("Submission not found.", StatusCodes.Status404NotFound);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == submission.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<SubmissionDetailsDto>.Failure("Access denied.", StatusCodes.Status403Forbidden);
 
             return Result<SubmissionDetailsDto>.Success(
             new SubmissionDetailsDto
@@ -1042,23 +1035,18 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<Result<string>> GetSubmissionStatusAsync(Guid userId, string submissionId)
+        public async Task<Result<string>> GetSubmissionStatusAsync(string submissionId)
         {
             if (!Guid.TryParse(submissionId, out var subGuid)) return Result<string>.Failure("Invalid Submission ID format.", StatusCodes.Status400BadRequest);
             var submission = await _uow.Submissions.FindAsync(s => s.Id == subGuid);
             if (submission == null) return Result<string>.Failure("Submission not found.", StatusCodes.Status404NotFound);
-            var project = await _uow.Projects.FindAsync(p => p.Id == submission.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<string>.Failure("Access denied.", StatusCodes.Status403Forbidden);
             return Result<string>.Success(submission.Status);
         }
        
         public async Task<Result<SubmissionHistoryDto>> RetrySubmissionAsync(Guid userId, string submissionId)
         {
             if (!Guid.TryParse(submissionId, out var subGuid)) return Result<SubmissionHistoryDto>.Failure("Invalid Submission ID format.", StatusCodes.Status400BadRequest);
-
-            var user = await _uow.Users.FindAsync(u => u.Id == userId && !u.IsDeleted && u.IsActive);
-            if (user == null) return Result<SubmissionHistoryDto>.Failure("User not found or inactive.", StatusCodes.Status404NotFound);
-
+            
             var submission = await _uow.Submissions.FindAsync(s => s.Id == subGuid);
             if (submission == null) return Result<SubmissionHistoryDto>.Failure("Submission not found.", StatusCodes.Status404NotFound);
 

@@ -71,10 +71,10 @@ namespace Emaily.BLL.Services
 
             return overview;
         }
-        public async Task<Result<ProjectAnalyticsDto>> GetProjectAnalyticsAsync(Guid userId,string projectId)
+        public async Task<Result<ProjectAnalyticsDto>> GetProjectAnalyticsAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<ProjectAnalyticsDto>.Failure("Project not found or you don't have access to it.", StatusCodes.Status403Forbidden);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
+            if (project == null) return Result<ProjectAnalyticsDto>.Failure("Project not found", StatusCodes.Status403Forbidden);
 
             var templates = await _uow.Templates.FindAllAsync(t => t.ProjectId == projectId && !t.IsDeleted);
             var submissions = await _uow.Submissions.FindAllAsync(s => s.ProjectId == projectId);

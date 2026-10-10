@@ -15,13 +15,13 @@ namespace Emaily.BLL.Helpers
                 return true;
 
             var sanitizer = new HtmlSanitizer();
+            sanitizer.AllowedAttributes.Add("role");
             bool isMalicious = false;
 
             // لو المكتبة لقت أي تاج أو كلاس أو ستايل خطر وحاولت تمسحه، هنخلي المتغير بـ true
             sanitizer.RemovingTag += (s, e) => isMalicious = true;
             sanitizer.RemovingAttribute += (s, e) => isMalicious = true;
             sanitizer.RemovingStyle += (s, e) => isMalicious = true;
-            sanitizer.RemovingAtRule += (s, e) => isMalicious = true;
 
             // نعمل Sanitize عشان الـ Events تشتغل لو فيه خطر
             sanitizer.Sanitize(html);
@@ -30,5 +30,47 @@ namespace Emaily.BLL.Helpers
             return !isMalicious;
         }
 
+        public static bool IsHtmlSafeIgnoreExpressions
+            (string html)
+        {
+            if (string.IsNullOrWhiteSpace(html))
+                return true;
+
+            var sanitizer = new HtmlSanitizer();
+
+            sanitizer.AllowedAttributes.Add("role");
+
+            bool isMalicious = false;
+
+            sanitizer.RemovingTag += (s, e) =>
+            {
+                if (e.Tag.TagName.Contains("{{") || e.Tag.TagName.Contains("}}"))
+                    return;
+
+                isMalicious = true;
+            };
+
+            sanitizer.RemovingAttribute += (s, e) =>
+            {
+                if (e.Attribute.Value.Contains("{{") && e.Attribute.Value.Contains("}}"))
+                    return;
+
+                isMalicious = true;
+            };
+
+            sanitizer.RemovingStyle += (s, e) =>
+            {
+                if (e.Style.Value.Contains("{{") && e.Style.Value.Contains("}}"))
+                    return;
+
+                isMalicious = true;
+            };
+
+            sanitizer.Sanitize(html);
+
+            return !isMalicious;
+        }
     }
+
 }
+

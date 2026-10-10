@@ -1,4 +1,5 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.DTOs.Project;
 using Emaily.BLL.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -35,63 +36,67 @@ namespace Emaily.API.Controllers
             return Ok(result.Data);
         }
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetById(string id)
+        [HttpGet("{projectId}")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> GetById(string projectId)
         {
-            var project = await _projectService.GetByIdAsync(User.GetUserId(), id);
+            var project = await _projectService.GetByIdAsync(projectId);
             if (!project.IsSuccess) return StatusCode(project.ErrorCode, new { success = false, message = project.ErrorMessage });
             return Ok(project.Data);
         }
 
-        [HttpPut("{id}")]
-        public async Task<IActionResult> Update(string id, [FromBody] UpdateProjectDto dto)
+        [HttpPut("{projectId}")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> Update(string projectId, [FromBody] UpdateProjectDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var result = await _projectService.UpdateAsync(User.GetUserId(), id, dto);
+            var result = await _projectService.UpdateAsync(projectId, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }
 
-        [HttpPost("{id}/keys")]
-        public async Task<IActionResult> RegenerateKeys(string id)
+        [HttpPost("{projectId}/keys")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> RegenerateKeys(string projectId)
         {
-            var result = await _projectService.RegenerateKeysAsync(User.GetUserId(), id);
+            var result = await _projectService.RegenerateKeysAsync(projectId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(new { message = "Keys regenerated successfully.", data = result.Data });
         }
 
-        [HttpDelete("{id}")]
-        public async Task<IActionResult> Delete(string id)
+        [HttpDelete("{projectId}")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> Delete(string projectId)
         {
-            var deleted = await _projectService.DeleteAsync(User.GetUserId(), id);
+            var deleted = await _projectService.DeleteAsync(projectId);
             if (!deleted) return NotFound(new { message = "Project not found or already deleted." });
 
             return Ok(new { message = "Project deleted successfully." });
         }
 
-        [HttpPut("{id}/status")]
-        public async Task<IActionResult> ToggleStatus(string id, [FromBody] Emaily.BLL.DTOs.UpdateStatusDto dto)
+        [HttpPut("{projectId}/status")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> ToggleStatus(string projectId, [FromBody] Emaily.BLL.DTOs.UpdateStatusDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var success = await _projectService.ToggleStatusAsync(User.GetUserId(), id, dto.IsActive);
+            var success = await _projectService.ToggleStatusAsync(projectId, dto.IsActive);
             if (!success) return NotFound(new { message = "Project not found or access denied." });
             return Ok(new { message = "Project status updated successfully." });
         }
 
-        [HttpPut("{id}/access-mode")]
-        public async Task<IActionResult> ChangeAccessMode(string id, [FromBody] ChangeAccessModeDto dto)
+        [HttpPut("{projectId}/access-mode")]
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> ChangeAccessMode(string projectId, [FromBody] ChangeAccessModeDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var result = await _projectService.ChangeAccessModeAsync(User.GetUserId(), id, dto);
+            var result = await _projectService.ChangeAccessModeAsync(projectId, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { seccess = false, message = result.ErrorMessage });
             return Ok(new { success = true, message = "Project access mode updated successfully." });
         }
 
-        [HttpPut("{id}/unlock")]
+        [HttpPut("{projectId}/unlock")]
         [EnableRateLimiting("StrictUserCreationPolicy")]
-        public async Task<IActionResult> UnlockProject(string id)
+        [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
+        public async Task<IActionResult> UnlockProject(string projectId)
         {
-            var result = await _projectService.UnlockProjectAsync(User.GetUserId(), id);
+            var result = await _projectService.UnlockProjectAsync(projectId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(new { message = "Project unlocked successfully." });
         }

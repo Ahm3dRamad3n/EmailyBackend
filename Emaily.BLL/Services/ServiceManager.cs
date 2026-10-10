@@ -60,12 +60,8 @@ namespace Emaily.BLL.Services
             }));
         }
 
-        public async Task<Result<IEnumerable<ServiceDto>>> GetProjectServicesAsync(Guid userId, string projectId)
+        public async Task<Result<IEnumerable<ServiceDto>>> GetProjectServicesAsync(string projectId)
         {
-            // التحقق من ملكية المشروع أولاً
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<IEnumerable<ServiceDto>>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
             var servicesIds = await _uow.ProjectServices.SelectWhereAsync(selector: ps => ps.ServiceId, criteria: ps => ps.ProjectId == projectId);
 
             var services = await _uow.Services.FindAllAsync(s => servicesIds.Contains(s.Id) && !s.IsDeleted);
@@ -170,9 +166,9 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<Result<ServiceDto>> UpdateServiceAsync(Guid userId, string serviceId, UpdateServiceDto dto)
+        public async Task<Result<ServiceDto>> UpdateServiceAsync(string serviceId, UpdateServiceDto dto)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && s.UserId == userId && !s.IsDeleted,
+            var service = await _uow.Services.FindAsync(s => s.Id == serviceId,
                 includes: s => s.Include(s => s.ServiceApiKey)
                      .Include(s => s.ServiceOauth)
                      .Include(s => s.ServiceAppPassword));
@@ -239,9 +235,9 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<bool> DeleteServiceAsync(Guid userId, string serviceId)
+        public async Task<bool> DeleteServiceAsync(string serviceId)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && !s.IsDeleted, includes: q => q.Include(s => s.ProjectServices));
+            var service = await _uow.Services.FindAsync(s => s.Id == serviceId, includes: q => q.Include(s => s.ProjectServices));
             if (service == null) return false;
 
             service.IsDeleted = true;
@@ -258,9 +254,9 @@ namespace Emaily.BLL.Services
             return true;
         }
        
-        public async Task<bool> ToggleStatusAsync(Guid userId, string serviceId, bool isActive)
+        public async Task<bool> ToggleStatusAsync(string serviceId, bool isActive)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && s.UserId == userId && !s.IsDeleted);
+            var service = await _uow.Services.FindAsync(s => s.Id == serviceId);
             if (service == null) return false;
 
             service.IsActive = isActive;
@@ -269,14 +265,8 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<Result<bool>> LinkServiceToProjectAsync(Guid userId, string serviceId, string projectId)
+        public async Task<Result<bool>> LinkServiceToProjectAsync(string serviceId, string projectId)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && s.UserId == userId && !s.IsDeleted);
-            if (service == null) return Result<bool>.Failure("Service not found.", StatusCodes.Status404NotFound);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<bool>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
             var existingLink = await _uow.ProjectServices.FindAsync(ps => ps.ServiceId == serviceId && ps.ProjectId == projectId);
             if (existingLink != null) return Result<bool>.Failure("Service is already linked to the project.", StatusCodes.Status400BadRequest);
 
@@ -291,14 +281,8 @@ namespace Emaily.BLL.Services
             return Result<bool>.Success(true);
         }
 
-        public async Task<Result<bool>> UnlinkServiceFromProjectAsync(Guid userId, string serviceId, string projectId)
+        public async Task<Result<bool>> UnlinkServiceFromProjectAsync(string serviceId, string projectId)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && s.UserId == userId && !s.IsDeleted);
-            if (service == null) return Result<bool>.Failure("Service not found.", StatusCodes.Status404NotFound);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<bool>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
             var existingLink = await _uow.ProjectServices.FindAsync(ps => ps.ServiceId == serviceId && ps.ProjectId == projectId);
             if (existingLink == null) return Result<bool>.Failure("Service is not linked to the project.", StatusCodes.Status400BadRequest);
 
@@ -306,9 +290,10 @@ namespace Emaily.BLL.Services
             await _uow.CompleteAsync();
             return Result<bool>.Success(true);
         }
-        public async Task<Result<bool>> UnlockServiceAsync(Guid userId, string serviceId)
+      
+        public async Task<Result<bool>> UnlockServiceAsync(string serviceId)
         {
-            var service = await _uow.Services.FindAsync(s => s.Id == serviceId && s.UserId == userId && !s.IsDeleted);
+            var service = await _uow.Services.FindAsync(s => s.Id == serviceId);
 
             if (service == null)
                 return Result<bool>.Failure("Service not found or access denied.", StatusCodes.Status404NotFound);
@@ -316,11 +301,11 @@ namespace Emaily.BLL.Services
             if (!service.IsLocked)
                 return Result<bool>.Success(true);
 
-            int count = await _uow.Services.CountAsync(s => s.UserId == userId && !s.IsLocked && !s.IsDeleted);
+            int count = await _uow.Services.CountAsync(s => s.UserId == service.UserId && !s.IsLocked && !s.IsDeleted);
 
             var availableServicesList = await _uow.Subscriptions.SelectWhereAsync(
                 selector: sub => sub.Plan.MaxServices, 
-                criteria: sub => sub.UserId == userId && sub.Status == Subscription.Statuses.Active && sub.EndDate > DateTime.UtcNow,
+                criteria: sub => sub.UserId == service.UserId && sub.Status == Subscription.Statuses.Active && sub.EndDate > DateTime.UtcNow,
                 includes: q => q.Include(sub => sub.Plan)
             );
             int availableServices = availableServicesList.FirstOrDefault();

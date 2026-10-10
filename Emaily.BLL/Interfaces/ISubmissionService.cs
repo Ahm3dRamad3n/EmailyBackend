@@ -8,9 +8,9 @@ namespace Emaily.BLL.Interfaces
     {
         Task<Result<bool>> SubmitAsync(string publicApiKey, SubmitDto dto, string originDomain);
         Task<Result<bool>> SubmitSupportAsync(SupportDto dto, string originDomain);
-        Task<Result<PagedResultDto<SubmissionHistoryDto>>> GetProjectSubmissionsAsync(Guid userId, string projectId, int page);
-        Task<Result<SubmissionDetailsDto>> GetSubmissionDetailsAsync(Guid userId, string submissionId);
+        Task<Result<PagedResultDto<SubmissionHistoryDto>>> GetProjectSubmissionsAsync(string projectId, int page);
+        Task<Result<SubmissionDetailsDto>> GetSubmissionDetailsAsync(string submissionId);
         Task<Result<SubmissionHistoryDto>> RetrySubmissionAsync(Guid userId, string submissionId);
-        Task<Result<string>> GetSubmissionStatusAsync(Guid userId, string submissionId);
+        Task<Result<string>> GetSubmissionStatusAsync(string submissionId);
     }
 }

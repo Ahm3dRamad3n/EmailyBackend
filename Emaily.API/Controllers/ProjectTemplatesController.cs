@@ -1,4 +1,5 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.Interfaces;
 using Microsoft.AspNetCore.Authorization;
@@ -10,18 +11,19 @@ using System.Threading.Tasks;
 
 namespace Emaily.API.Controllers
 {
-    [Route("api/projects/{id}/templates")]
+    [Route("api/projects/{projectId}/templates")]
     [ApiController]
     [Authorize]
     [EnableRateLimiting("perUser")]
+    [ServiceFilter(typeof(CheckProjectOwnershipFilter))]
     public class ProjectTemplatesController(ITemplateService templateService) : ControllerBase
     {
         private readonly ITemplateService _templateService = templateService;
 
         [HttpGet]
-        public async Task<IActionResult> GetTemplates(string id)
+        public async Task<IActionResult> GetTemplates(string projectId)
         {
-            var result = await _templateService.GetProjectTemplatesAsync(User.GetUserId(), id);
+            var result = await _templateService.GetProjectTemplatesAsync(projectId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }
@@ -29,10 +31,9 @@ namespace Emaily.API.Controllers
         [HttpPost]
         [RequestSizeLimit(3 * 1024 * 1024)] // 3 MB
         [EnableRateLimiting("StrictUserCreationPolicy")]
-        public async Task<IActionResult> AddTemplate(string id, [FromBody] CreateTemplateDto dto)
+        public async Task<IActionResult> AddTemplate(string projectId, [FromBody] CreateTemplateDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var result = await _templateService.CreateTemplateAsync(User.GetUserId(), id, dto);
+            var result = await _templateService.CreateTemplateAsync(projectId, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }

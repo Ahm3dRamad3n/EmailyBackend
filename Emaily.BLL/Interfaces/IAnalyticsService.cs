@@ -8,6 +8,6 @@ namespace Emaily.BLL.Interfaces
     public interface IAnalyticsService
     {
         Task<OverviewAnalyticsDto> GetOverviewAnalyticsAsync(Guid userId);
-        Task<Result<ProjectAnalyticsDto>> GetProjectAnalyticsAsync(Guid userId, string projectId);
+        Task<Result<ProjectAnalyticsDto>> GetProjectAnalyticsAsync(string projectId);
     }
 }

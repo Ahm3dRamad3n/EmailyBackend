@@ -30,9 +30,12 @@ namespace Emaily.DAL.Repositories
 
         // Specific repositories
         public IUserRepository UserRepository { get; private set; }
-        //public IProjectRepository ProjectRepository { get; private set; }
-        //public IServiceRepository ServiceRepository { get; private set; }   
-        //public ITemplateRepository TemplateRepository { get; private set; }
+        public IProjectRepository ProjectRepository { get; private set; }
+        public IServiceRepository ServiceRepository { get; private set; }
+        public ITemplateRepository TemplateRepository { get; private set; }
+        public IIntegrationRepository IntegrationRepository { get; private set; }
+        public IAttachmentRepository AttachmentRepository { get; private set; }
+        public ISubmissionRepository SubmissionRepository { get; private set; }
 
         public UnitOfWork(EmailyDbContext context)
         {
@@ -57,9 +60,12 @@ namespace Emaily.DAL.Repositories
             SystemLogs = new GenericRepository<SystemLog>(_context);
 
             UserRepository = new UserRepository(_context);
-            //ProjectRepository = new ProjectRepository(_context);
-            //ServiceRepository = new ServiceRepository(_context);
-            //TemplateRepository = new TemplateRepository(_context);
+            ProjectRepository = new ProjectRepository(_context);
+            ServiceRepository = new ServiceRepository(_context);
+            TemplateRepository = new TemplateRepository(_context);
+            IntegrationRepository = new IntegrationRepository(_context);
+            AttachmentRepository = new AttachmentRepository(_context);
+            SubmissionRepository = new SubmissionRepository(_context);
         }
 
         public async Task<int> CompleteAsync()

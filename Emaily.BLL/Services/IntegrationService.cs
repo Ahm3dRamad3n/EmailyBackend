@@ -30,11 +30,8 @@ namespace Emaily.BLL.Services
         private readonly string _jsonCredentials = configuration["GOOGLE_SHEETS_CREDENTIALS"] ??
                      throw new Exception("Google Sheets credentials are not set in environment variables.");
 
-        public async Task<Result<IEnumerable<IntegrationDto>>> GetIntegrationsAsync(Guid userId, string projectId)
+        public async Task<Result<IEnumerable<IntegrationDto>>> GetIntegrationsAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<IEnumerable<IntegrationDto>>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
             var integrations = await _uow.Integrations.FindAllAsync(i => i.ProjectId == projectId && !i.IsDeleted);
             return Result<IEnumerable<IntegrationDto>>.Success(integrations.Select(i => new IntegrationDto
             {
@@ -48,10 +45,6 @@ namespace Emaily.BLL.Services
 
         public async Task<Result<IntegrationDto>> AddIntegrationAsync(Guid userId, string projectId, CreateIntegrationDto dto)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<IntegrationDto>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
-
-            // 1. التحقق من صلاحيات الباقة
             var subscriptions = await _uow.Subscriptions.FindAllAsync(s => s.UserId == userId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow);
             var activeSubscription = subscriptions.OrderByDescending(s => s.CreatedAt).FirstOrDefault();
             if (activeSubscription == null)
@@ -125,11 +118,8 @@ namespace Emaily.BLL.Services
         public async Task<Result<IntegrationDto>> UpdateIntegrationAsync(Guid userId, string integrationId, UpdateIntegrationDto dto)
         {
             if (!Guid.TryParse(integrationId, out var parsedId)) return Result<IntegrationDto>.Failure("Invalid integration ID format.", StatusCodes.Status400BadRequest);
-            var integration = await _uow.Integrations.FindAsync(i => i.Id == parsedId && !i.IsDeleted);
+            var integration = await _uow.Integrations.FindAsync(i => i.Id == parsedId);
             if (integration == null) return Result<IntegrationDto>.Failure("Integration not found.", StatusCodes.Status404NotFound);
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == integration.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return Result<IntegrationDto>.Failure("Project not found or access denied.", StatusCodes.Status403Forbidden);
 
             var configString = dto.ConfigJson.GetRawText();
             if (integration.IntegrationType == Integration.IntegrationTypes.TelegramBot)
@@ -161,17 +151,13 @@ namespace Emaily.BLL.Services
             });
         }
 
-        public async Task<bool> RemoveIntegrationAsync(Guid userId, string integrationId)
+        public async Task<bool> RemoveIntegrationAsync(string integrationId)
         {
             if (!Guid.TryParse(integrationId, out var parsedId)) return false;
 
             var integration = await _uow.Integrations.FindAsync(i => i.Id == parsedId && !i.IsDeleted);
             if (integration == null) return false;
 
-            var project = await _uow.Projects.FindAsync(p => p.Id == integration.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return false;
-
-            // الحذف المنطقي
             integration.IsDeleted = true;
             integration.IsActive = false;
 
@@ -180,15 +166,12 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<bool> ToggleStatusAsync(Guid userId, string integrationId, bool isActive)
+        public async Task<bool> ToggleStatusAsync(string integrationId, bool isActive)
         {
             if (!Guid.TryParse(integrationId, out var parsedId)) return false;
 
             var integration = await _uow.Integrations.FindAsync(i => i.Id == parsedId && !i.IsDeleted);
             if (integration == null) return false;
-
-            var project = await _uow.Projects.FindAsync(p => p.Id == integration.ProjectId && p.UserId == userId && !p.IsDeleted);
-            if (project == null) return false;
 
             integration.IsActive = isActive;
             _uow.Integrations.Update(integration);

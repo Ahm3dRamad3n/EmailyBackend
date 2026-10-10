@@ -1,3 +1,4 @@
+using Emaily.API.Extensions;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
 
@@ -12,7 +13,7 @@ namespace Emaily.API.Authorization
             string Id)
         {
             // Ownership check
-            var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+            string userId = context.User.GetUserIdString();
 
             if (userId == Id)
             {

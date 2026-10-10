@@ -1,4 +1,5 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -9,34 +10,35 @@ using System.Threading.Tasks;
 
 namespace Emaily.API.Controllers
 {
-    [Route("api/submissions")]
+    [Route("api/submissions/{submissionId}")]
     [ApiController]
     [Authorize]
     [EnableRateLimiting("perUser")]
+    [ServiceFilter(typeof(CheckSubmissionOwnershipFilter))]
     public class SubmissionsController(ISubmissionService submissionService) : ControllerBase
     {
         private readonly ISubmissionService _submissionService = submissionService;
 
-        [HttpGet("{id}")]
-        public async Task<IActionResult> GetSubmissionDetails(string id)
+        [HttpGet]
+        public async Task<IActionResult> GetSubmissionDetails(string submissionId)
         {
-            var result = await _submissionService.GetSubmissionDetailsAsync(User.GetUserId(), id);
+            var result = await _submissionService.GetSubmissionDetailsAsync(submissionId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }
 
-        [HttpGet("{id}/status")]
-        public async Task<IActionResult> GetSubmissionStatus(string id)
+        [HttpGet("status")]
+        public async Task<IActionResult> GetSubmissionStatus(string submissionId)
         {
-            var result = await _submissionService.GetSubmissionStatusAsync(User.GetUserId(), id);
+            var result = await _submissionService.GetSubmissionStatusAsync(submissionId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage }); 
             return Ok(result.Data);
         }
 
-        [HttpPost("{id}/retry")]
-        public async Task<IActionResult> RetrySubmission(string id)
+        [HttpPost("retry")]
+        public async Task<IActionResult> RetrySubmission(string submissionId)
         {
-            var result = await _submissionService.RetrySubmissionAsync(User.GetUserId(), id);
+            var result = await _submissionService.RetrySubmissionAsync(User.GetUserId(), submissionId);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }

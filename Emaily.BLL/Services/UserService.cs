@@ -9,11 +9,12 @@ using System.Threading.Tasks;
 
 namespace Emaily.BLL.Services
 {
-    public class UserService(IUnitOfWork uow, ITokenService tokenService
+    public class UserService(IUnitOfWork uow, ITokenService tokenService, IAuthService authService
         ) : IUserService
     {
         private readonly IUnitOfWork _uow = uow;
         private readonly ITokenService _tokenService = tokenService;
+        private readonly IAuthService _authService = authService;
 
         public async Task<Result<UserProfileDto>> GetProfileAsync(Guid userId)
         {
@@ -116,26 +117,9 @@ namespace Emaily.BLL.Services
             return Result<UserQuotaDto>.Success(quota.First());
         }
 
-        public async Task<bool> DeleteAccountAsync(Guid userId)
+        public async Task<bool> DeleteAccountAsync(Guid userId, string accessToken)
         {
-            var user = await _uow.Users.FindAsync(u => u.Id == userId && !u.IsDeleted);
-            if (user == null) return false;
-
-            // الحذف المنطقي كما هو مطلوب في الـ PDF
-            user.IsDeleted = true;
-            user.IsActive = false;
-            _uow.Users.Update(user);
-
-            // إبطال الجلسات
-            var userTokens = await _uow.RefreshTokens.FindAllAsync(t => t.UserId == userId && !t.IsRevoked);
-            foreach (var token in userTokens)
-            {
-                token.IsRevoked = true;
-                _uow.RefreshTokens.Update(token);
-            }
-
-            await _uow.CompleteAsync();
-            return true;
+            return await _authService.DeleteAccountAsync(userId, accessToken);
         }
     }
 }

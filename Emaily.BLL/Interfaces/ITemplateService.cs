@@ -9,14 +9,14 @@ namespace Emaily.BLL.Interfaces
 {
     public interface ITemplateService
     {
-        Task<Result<IEnumerable<TemplateDto>>> GetProjectTemplatesAsync(Guid userId, string projectId);
-        Task<Result<TemplateDetailsDto>> GetTemplateDetailsAsync(Guid userId, string templateId);
-        Task<Result<TemplateDetailsDto>> CreateTemplateAsync(Guid userId, string projectId, CreateTemplateDto dto);
-        Task<Result<TemplateDetailsDto>> UpdateTemplateAsync(Guid userId, string templateId, UpdateTemplateDto dto);
+        Task<Result<IEnumerable<TemplateDto>>> GetProjectTemplatesAsync(string projectId);
+        Task<Result<TemplateDetailsDto>> GetTemplateDetailsAsync(string templateId);
+        Task<Result<TemplateDetailsDto>> CreateTemplateAsync(string projectId, CreateTemplateDto dto);
+        Task<Result<TemplateDetailsDto>> UpdateTemplateAsync(string templateId, UpdateTemplateDto dto);
         Task<Result<TemplateAttachmentDto>> AddAttachmentAsync(Guid userId, string templateId, IFormFile file);
-        Task<bool> DeleteAttachmentAsync(Guid userId, string templateId, string attachmentId);
-        Task<bool> DeleteTemplateAsync(Guid userId, string templateId);
-        Task<bool> ToggleStatusAsync(Guid userId, string templateId, bool isActive);
-        Task<Result<bool>> UnlockTemplateAsync(Guid userId, string templateId);
+        Task<bool> DeleteAttachmentAsync(string attachmentId);
+        Task<bool> DeleteTemplateAsync(string templateId);
+        Task<bool> ToggleStatusAsync(string templateId, bool isActive);
+        Task<Result<bool>> UnlockTemplateAsync(string templateId);
     }
 }

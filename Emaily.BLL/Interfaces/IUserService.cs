@@ -11,6 +11,6 @@ namespace Emaily.BLL.Interfaces
         Task<Result<UserProfileDto>> UpdateProfileAsync(Guid userId, UpdateProfileDto dto);
         Task<Result<bool>> ChangePasswordAsync(Guid userId, ChangePasswordDto dto);
         Task<Result<UserQuotaDto>> GetQuotaAsync(Guid userId);
-        Task<bool> DeleteAccountAsync(Guid userId);
+        Task<bool> DeleteAccountAsync(Guid userId, string accessToken);
     }
 }

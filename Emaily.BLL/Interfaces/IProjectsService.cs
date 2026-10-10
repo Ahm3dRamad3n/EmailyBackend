@@ -10,12 +10,12 @@ namespace Emaily.BLL.Interfaces
     {
         Task<IEnumerable<ProjectDto>> GetAllProjectsAsync(Guid userId);
         Task<Result<ProjectDetailsDto>> CreateAsync(Guid userId, CreateProjectDto dto);
-        Task<Result<ProjectDetailsDto>> GetByIdAsync(Guid userId, string projectId);
-        Task<Result<ProjectDetailsDto>> UpdateAsync(Guid userId, string projectId, UpdateProjectDto dto);
-        Task<Result<ProjectDetailsDto>> RegenerateKeysAsync(Guid userId, string projectId);
-        Task<bool> DeleteAsync(Guid userId, string projectId);
-        Task<bool> ToggleStatusAsync(Guid userId, string projectId, bool isActive);
-        Task<Result<bool>> ChangeAccessModeAsync(Guid userId, string projectId, ChangeAccessModeDto dto);
-        Task<Result<bool>> UnlockProjectAsync(Guid userId, string projectId);
+        Task<Result<ProjectDetailsDto>> GetByIdAsync(string projectId);
+        Task<Result<ProjectDetailsDto>> UpdateAsync(string projectId, UpdateProjectDto dto);
+        Task<Result<ProjectDetailsDto>> RegenerateKeysAsync(string projectId);
+        Task<bool> DeleteAsync(string projectId);
+        Task<bool> ToggleStatusAsync(string projectId, bool isActive);
+        Task<Result<bool>> ChangeAccessModeAsync(string projectId, ChangeAccessModeDto dto);
+        Task<Result<bool>> UnlockProjectAsync(string projectId);
     }
 }

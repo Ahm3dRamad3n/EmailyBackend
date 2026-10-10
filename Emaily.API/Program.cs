@@ -1,16 +1,21 @@
-﻿using Emaily.API.Extensions;
+﻿using Emaily.API.Authorization;
+using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.API.Middlewares;
 using Emaily.BLL;
 using Emaily.BLL.Helpers.Interfaces;
+using Emaily.DAL.Entities;
 using Hangfire;
 using Hangfire.Dashboard.BasicAuthorization;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authentication.MicrosoftAccount;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
+using System.Net.Mail;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.RateLimiting;
@@ -119,8 +124,10 @@ builder.Services.AddRateLimiter(options =>
     });
     options.AddPolicy("StrictUserCreationPolicy", httpContext =>
     {
-        var userId = httpContext.User.GetUserIdString();
-        return RateLimitPartition.GetFixedWindowLimiter(userId, _ =>
+        if (httpContext.User.Identity?.IsAuthenticated == true)
+        {
+            var userId = httpContext.User.GetUserIdString();
+            return RateLimitPartition.GetFixedWindowLimiter(userId, _ =>
             new FixedWindowRateLimiterOptions
             {
                 PermitLimit = 1, // السماح بطلب واحد فقط
@@ -128,6 +135,10 @@ builder.Services.AddRateLimiter(options =>
                 QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
                 QueueLimit = 0
             });
+        }
+
+        // إذا كان المستخدم غير مسجل (زائر مجهول)، نلغي الليميت تماماً
+        return RateLimitPartition.GetNoLimiter("anonymous");
     });
 });
 
@@ -233,6 +244,34 @@ builder.Services.AddAuthentication(options =>
 
     options.SignInScheme = "ExternalCookie";
 });
+
+builder.Services.AddScoped<IAuthorizationHandler, ProjectOwnerHandler>();
+builder.Services.AddScoped<CheckProjectOwnershipFilter>();
+builder.Services.AddScoped<IAuthorizationHandler, ServiceOwnerHandler>();
+builder.Services.AddScoped<CheckServiceOwnershipFilter>();
+builder.Services.AddScoped<IAuthorizationHandler, TemplateOwnerHandler>();
+builder.Services.AddScoped<CheckTemplateOwnershipFilter>();
+builder.Services.AddScoped<IAuthorizationHandler, IntegrationOwnerHandler>();
+builder.Services.AddScoped<CheckIntegrationOwnershipFilter>();
+
+builder.Services.AddScoped<IAuthorizationHandler, SubmissionOwnerHandler>();
+builder.Services.AddScoped<CheckSubmissionOwnershipFilter>();
+builder.Services.AddScoped<IAuthorizationHandler, AttachmentOwnerHandler>();
+builder.Services.AddScoped<CheckAttachmentOwnershipFilter>();
+
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("IsProjectOwner", policy =>
+        policy.Requirements.Add(new ProjectOwnerRequirement()))
+    .AddPolicy("IsServiceOwner", policy =>
+        policy.Requirements.Add(new ServiceOwnerRequirement()))
+    .AddPolicy("IsTemplateOwner", policy =>
+        policy.Requirements.Add(new TemplateOwnerRequirement()))
+    .AddPolicy("IsIntegrationOwner", policy =>
+        policy.Requirements.Add(new IntegrationOwnerRequirement()))
+    .AddPolicy("IsSubmissionOwner", policy =>
+        policy.Requirements.Add(new SubmissionOwnerRequirement()))
+    .AddPolicy("IsAttachmentOwner", policy =>
+        policy.Requirements.Add(new AttachmentOwnerRequirement()));
 
 builder.Services.AddBusinessLogicLayer(builder.Configuration);
 

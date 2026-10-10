@@ -1,6 +1,7 @@
 ﻿using Emaily.API.Extensions;
 using Emaily.BLL.DTOs.User;
 using Emaily.BLL.Interfaces;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -38,9 +39,13 @@ namespace Emaily.API.Controllers
         [HttpDelete("me")]
         public async Task<IActionResult> DeleteAccount()
         {
-            var deleted = await _userService.DeleteAccountAsync(User.GetUserId());
+            string? accessToken = await HttpContext.GetTokenAsync("access_token");
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                return BadRequest(new { message = "Access token is missing." });
+            }
+            var deleted = await _userService.DeleteAccountAsync(User.GetUserId(), accessToken);
             if (!deleted) return NotFound(new { message = "User not found or already deleted." });
-
             return Ok(new { message = "Account deleted successfully and all tokens revoked." });
         }
 

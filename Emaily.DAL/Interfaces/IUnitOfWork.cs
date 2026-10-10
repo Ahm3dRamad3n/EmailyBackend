@@ -28,9 +28,12 @@ namespace Emaily.DAL.Interfaces
 
         // Specific repositories for entities that require custom methods
         IUserRepository UserRepository { get; }
-        //IProjectRepository ProjectRepository { get; }
-        //IServiceRepository ServiceRepository { get; }
-        //ITemplateRepository TemplateRepository { get; }
+        IProjectRepository ProjectRepository { get; }
+        IServiceRepository ServiceRepository { get; }
+        ITemplateRepository TemplateRepository { get; }
+        IIntegrationRepository IntegrationRepository { get; }
+        IAttachmentRepository AttachmentRepository { get; }
+        ISubmissionRepository SubmissionRepository { get; }
 
         Task<int> CompleteAsync(); // هذه الدالة الوحيدة التي ستستدعي SaveChangesAsync
     }

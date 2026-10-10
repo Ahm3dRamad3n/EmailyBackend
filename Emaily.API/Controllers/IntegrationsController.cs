@@ -1,4 +1,5 @@
 ﻿using Emaily.API.Extensions;
+using Emaily.API.Filters;
 using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Integration;
 using Emaily.BLL.Interfaces;
@@ -11,36 +12,35 @@ using System.Threading.Tasks;
 
 namespace Emaily.API.Controllers
 {
-    [Route("api/integrations")]
+    [Route("api/integrations/{integrationId}")]
     [ApiController]
     [Authorize]
     [EnableRateLimiting("perUser")]
+    [ServiceFilter(typeof(CheckIntegrationOwnershipFilter))]
     public class IntegrationsController(IIntegrationService integrationService) : ControllerBase
     {
         private readonly IIntegrationService _integrationService = integrationService;
 
-        [HttpPut("{intId}")]
-        public async Task<IActionResult> UpdateIntegration(string intId, [FromBody] UpdateIntegrationDto dto)
+        [HttpPut]
+        public async Task<IActionResult> UpdateIntegration(string integrationId, [FromBody] UpdateIntegrationDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var result = await _integrationService.UpdateIntegrationAsync(User.GetUserId(), intId, dto);
+            var result = await _integrationService.UpdateIntegrationAsync(User.GetUserId(), integrationId, dto);
             if (!result.IsSuccess) return StatusCode(result.ErrorCode, new { success = false, message = result.ErrorMessage });
             return Ok(result.Data);
         }
 
-        [HttpPut("{intId}/status")]
-        public async Task<IActionResult> ToggleIntegrationStatus(string intId, [FromBody] UpdateStatusDto dto)
+        [HttpPut("status")]
+        public async Task<IActionResult> ToggleIntegrationStatus(string integrationId, [FromBody] UpdateStatusDto dto)
         {
-            if (!ModelState.IsValid) return BadRequest(ModelState);
-            var updated = await _integrationService.ToggleStatusAsync(User.GetUserId(), intId, dto.IsActive);
+            var updated = await _integrationService.ToggleStatusAsync(integrationId, dto.IsActive);
             if (!updated) return NotFound(new { message = "Integration not found or access denied." });
             return Ok(new { message = "Integration status updated successfully." });
         }
 
-        [HttpDelete("{intId}")]
-        public async Task<IActionResult> RemoveIntegration(string intId)
+        [HttpDelete]
+        public async Task<IActionResult> RemoveIntegration(string integrationId)
         {
-            var deleted = await _integrationService.RemoveIntegrationAsync(User.GetUserId(), intId);
+            var deleted = await _integrationService.RemoveIntegrationAsync(integrationId);
             if (!deleted) return NotFound(new { message = "Integration not found or access denied." });
             return Ok(new { message = "Integration removed successfully." });
         }

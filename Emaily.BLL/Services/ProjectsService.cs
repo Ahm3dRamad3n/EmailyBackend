@@ -71,9 +71,9 @@ namespace Emaily.BLL.Services
             return Result<ProjectDetailsDto>.Success(MapToDetailsDto(project));
         }
 
-        public async Task<bool> ToggleStatusAsync(Guid userId, string projectId, bool isActive)
+        public async Task<bool> ToggleStatusAsync(string projectId, bool isActive)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return false;
 
             project.IsActive = isActive;
@@ -82,17 +82,17 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<Result<ProjectDetailsDto>> GetByIdAsync(Guid userId, string projectId)
+        public async Task<Result<ProjectDetailsDto>> GetByIdAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return Result<ProjectDetailsDto>.Failure("Project not found.", StatusCodes.Status404NotFound);
 
             return Result<ProjectDetailsDto>.Success(MapToDetailsDto(project));
         }
 
-        public async Task<Result<ProjectDetailsDto>> UpdateAsync(Guid userId, string projectId, UpdateProjectDto dto)
+        public async Task<Result<ProjectDetailsDto>> UpdateAsync(string projectId, UpdateProjectDto dto)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return Result<ProjectDetailsDto>.Failure("Project not found.", StatusCodes.Status404NotFound);
 
             if (project.IsLocked)
@@ -107,9 +107,9 @@ namespace Emaily.BLL.Services
             return Result<ProjectDetailsDto>.Success(MapToDetailsDto(project));
         }
 
-        public async Task<Result<ProjectDetailsDto>> RegenerateKeysAsync(Guid userId, string projectId)
+        public async Task<Result<ProjectDetailsDto>> RegenerateKeysAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return Result<ProjectDetailsDto>.Failure("Project not found.", StatusCodes.Status404NotFound);
 
             if (project.IsLocked)
@@ -124,10 +124,10 @@ namespace Emaily.BLL.Services
             return Result<ProjectDetailsDto>.Success(MapToDetailsDto(project));
         }
 
-        public async Task<bool> DeleteAsync(Guid userId, string projectId)
+        public async Task<bool> DeleteAsync(string projectId)
         {
             var project = await _uow.Projects.FindAsync(
-                criteria: p => p.Id == projectId && p.UserId == userId && !p.IsDeleted,
+                criteria: p => p.Id == projectId,
 
                 includes: q => q.Include(p => p.Integrations)
                                 .Include(p => p.ProjectServices)
@@ -172,9 +172,9 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        public async Task<Result<bool>> ChangeAccessModeAsync(Guid userId, string projectId, ChangeAccessModeDto dto)
+        public async Task<Result<bool>> ChangeAccessModeAsync(string projectId, ChangeAccessModeDto dto)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
             if (project == null) return Result<bool>.Failure("Project not found.", StatusCodes.Status404NotFound);
 
             if (project.IsLocked)
@@ -186,9 +186,9 @@ namespace Emaily.BLL.Services
             return Result<bool>.Success(true);
         }
 
-        public async Task<Result<bool>> UnlockProjectAsync(Guid userId, string projectId)
+        public async Task<Result<bool>> UnlockProjectAsync(string projectId)
         {
-            var project = await _uow.Projects.FindAsync(p => p.Id == projectId && p.UserId == userId && !p.IsDeleted);
+            var project = await _uow.Projects.FindAsync(p => p.Id == projectId);
 
             if (project == null)
                 return Result<bool>.Failure("Project not found.", StatusCodes.Status404NotFound);
@@ -196,11 +196,11 @@ namespace Emaily.BLL.Services
             if (!project.IsLocked)
                 return Result<bool>.Success(true);
 
-            int count = await _uow.Projects.CountAsync(p => p.UserId == userId && !p.IsLocked && !p.IsDeleted);
+            int count = await _uow.Projects.CountAsync(p => p.UserId == project.UserId && !p.IsLocked && !p.IsDeleted);
 
             var availableProjectsList = await _uow.Subscriptions.SelectWhereAsync(
                 selector: s => s.Plan.MaxProjects,
-                criteria: s => s.UserId == userId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow,
+                criteria: s => s.UserId == project.UserId && s.Status == Subscription.Statuses.Active && s.EndDate > DateTime.UtcNow,
                 includes: q => q.Include(s => s.Plan)
             );
             int availableProjects = availableProjectsList.FirstOrDefault();
