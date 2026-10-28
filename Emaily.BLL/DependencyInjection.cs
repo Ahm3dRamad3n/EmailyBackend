@@ -56,6 +56,7 @@ namespace Emaily.BLL
             services.AddScoped<ITokenService, TokenService>();
             services.AddScoped<IPlanManager, PlanManager>();
             services.AddScoped<IEmailSenderService, EmailSenderService>();
+            services.AddScoped<IWebhookSenderService, WebhookSenderService>();
 
             services.AddScoped<IAuthService, AuthService>();
             services.AddScoped<IProjectsService, ProjectsService>();

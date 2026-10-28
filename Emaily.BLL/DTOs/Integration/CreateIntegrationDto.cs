@@ -15,10 +15,7 @@ namespace Emaily.BLL.DTOs.Integration
         [ValidIntegrationType]
         public string IntegrationType { get; set; } = null!;
 
-        [Required]
-        // مثال لتليجرام: {"ChatId": "123456789"}
-        // مثال لجوجل شيتس: {"sheetUrl": "https://docs.google.com/spreadsheets/d/1abc1234567890/edit#gid=0"}
-        // نثال لتلخيص الذكاء الاصطناعي: [null now]
-        public JsonElement ConfigJson { get; set; }
+        [RequiredText]
+        public string ConfigJson { get; set; } = null!;
     }
 }

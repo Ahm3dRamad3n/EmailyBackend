@@ -1,5 +1,6 @@
 ﻿using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Submission;
+using Emaily.DAL.Entities;
 using System.Threading.Tasks;
 
 namespace Emaily.BLL.Interfaces

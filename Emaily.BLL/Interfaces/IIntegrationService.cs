@@ -12,5 +12,7 @@ namespace Emaily.BLL.Interfaces
         Task<Result<IntegrationDto>> UpdateIntegrationAsync(Guid userId, string integrationId, UpdateIntegrationDto dto);
         Task<bool> RemoveIntegrationAsync(string integrationId);
         Task<bool> ToggleStatusAsync(string integrationId, bool isActive);
+        Task<IEnumerable<Guid>> GetUsersIdByChatIdAsync(string chatId);
+        Task<IEnumerable<string>> GetProjectsIdByChatIdAndUserIdAsync(string chatId, Guid userId);
     }
 }

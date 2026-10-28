@@ -1,4 +1,5 @@
 ﻿using System;
+using Emaily.BLL.Attributes;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -10,7 +11,7 @@ namespace Emaily.BLL.DTOs.Integration
 {
     public class UpdateIntegrationDto
     {
-        [Required]
-        public JsonElement ConfigJson { get; set; }
+        [RequiredText]
+        public string ConfigJson { get; set; } = null!;
     }
 }

@@ -253,11 +253,12 @@ builder.Services.AddScoped<IAuthorizationHandler, TemplateOwnerHandler>();
 builder.Services.AddScoped<CheckTemplateOwnershipFilter>();
 builder.Services.AddScoped<IAuthorizationHandler, IntegrationOwnerHandler>();
 builder.Services.AddScoped<CheckIntegrationOwnershipFilter>();
-
 builder.Services.AddScoped<IAuthorizationHandler, SubmissionOwnerHandler>();
 builder.Services.AddScoped<CheckSubmissionOwnershipFilter>();
 builder.Services.AddScoped<IAuthorizationHandler, AttachmentOwnerHandler>();
 builder.Services.AddScoped<CheckAttachmentOwnershipFilter>();
+
+builder.Services.AddScoped<InternalMasterApiKeyFilter>();
 
 builder.Services.AddAuthorizationBuilder()
     .AddPolicy("IsProjectOwner", policy =>

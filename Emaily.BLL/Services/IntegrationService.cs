@@ -1,6 +1,7 @@
 ﻿using Emaily.BLL.DTOs;
 using Emaily.BLL.DTOs.Integration;
 using Emaily.BLL.Helpers.Interfaces;
+using Emaily.BLL.Helpers.Services;
 using Emaily.BLL.Interfaces;
 using Emaily.DAL.Entities;
 using Emaily.DAL.Interfaces;
@@ -20,13 +21,13 @@ using System.Threading.Tasks;
 
 namespace Emaily.BLL.Services
 {
-    public partial class IntegrationService(IUnitOfWork uow, IHttpClientFactory httpClientFactory, ILoggerService logger, IConfiguration configuration) : IIntegrationService
+    public partial class IntegrationService(IUnitOfWork uow, IHttpClientFactory httpClientFactory, ILoggerService logger, IConfiguration configuration, IWebhookSenderService webhookSenderService
+        ) : IIntegrationService
     {
         private readonly IUnitOfWork _uow = uow;
         private readonly ILoggerService _logger = logger;
+        private readonly IWebhookSenderService _webhookSenderService = webhookSenderService;
         private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
-        private readonly string _botToken = configuration["TELEGRAM_BOT_TOKEN"] ??
-                    throw new Exception("Telegram Bot Token is not set in environment variables.");
         private readonly string _jsonCredentials = configuration["GOOGLE_SHEETS_CREDENTIALS"] ??
                      throw new Exception("Google Sheets credentials are not set in environment variables.");
 
@@ -66,7 +67,7 @@ namespace Emaily.BLL.Services
             if (integrationType == Integration.IntegrationTypes.AiSummary && !plan.CanUseAi)
                 return Result<IntegrationDto>.Failure("Your current plan does not support AI Summary integration", StatusCodes.Status403Forbidden);
 
-            var configString = dto.ConfigJson.GetRawText();
+            var configString = dto.ConfigJson;
 
             if (integrationType == Integration.IntegrationTypes.TelegramBot)
             {
@@ -121,7 +122,7 @@ namespace Emaily.BLL.Services
             var integration = await _uow.Integrations.FindAsync(i => i.Id == parsedId);
             if (integration == null) return Result<IntegrationDto>.Failure("Integration not found.", StatusCodes.Status404NotFound);
 
-            var configString = dto.ConfigJson.GetRawText();
+            var configString = dto.ConfigJson;
             if (integration.IntegrationType == Integration.IntegrationTypes.TelegramBot)
             {
                 var isValid = await VerifyTelegramConfigAsync(userId, configString);
@@ -179,45 +180,72 @@ namespace Emaily.BLL.Services
             return true;
         }
 
-        private async Task<bool> VerifyTelegramConfigAsync(Guid userId, string configJson)
+        public async Task<IEnumerable<Guid>> GetUsersIdByChatIdAsync(string chatId)
+        {
+            var integrations = await _uow.Integrations.FindAllAsync(i =>
+                i.IntegrationType == Integration.IntegrationTypes.TelegramBot &&
+                !i.IsDeleted &&
+                i.ConfigJson == chatId);
+
+            var uniqueUserIds = new HashSet<Guid>();
+
+            foreach (var integration in integrations)
+            {
+                var project = await _uow.Projects.FindAsync(p => p.Id == integration.ProjectId);
+                if (project != null)
+                {
+                    uniqueUserIds.Add(project.UserId);
+                }
+            }
+
+            return uniqueUserIds;
+        }
+
+        public async Task<IEnumerable<string>> GetProjectsIdByChatIdAndUserIdAsync(string chatId, Guid userId)
+        {
+            var integrations = await _uow.Integrations.FindAllAsync(i =>
+                i.IntegrationType == Integration.IntegrationTypes.TelegramBot &&
+                !i.IsDeleted &&
+                i.ConfigJson == chatId &&
+                i.Project.UserId == userId
+                );
+
+            var uniqueProjectIds = new HashSet<string>();
+
+            foreach (var integration in integrations)
+            {
+                uniqueProjectIds.Add(integration.ProjectId);
+            }
+
+            return uniqueProjectIds;
+        }
+       
+        private async Task<bool> VerifyTelegramConfigAsync(Guid userId, string chatId)
         {
             try
             {
-                using var document = JsonDocument.Parse(configJson);
-                if (!document.RootElement.TryGetProperty("chatId", out var chatIdProp))
+                var payload = new BotNotificationPayload
                 {
-                    return false;
-                }
+                    ChatId = chatId,
+                    Text = "🔗 Emaily System: Telegram Integration Verified Successfully!",
+                    ParseMode = "HTML"
+                };
 
-                var chatId = chatIdProp.GetString();
+                bool isSuccess = await _webhookSenderService.NotifyBotAsync(TargetEndpointEnum.VerifyTelegramConfig, payload, userId);
 
-                // إرسال رسالة تجريبية صامتة للتحقق
-                var payload = new { chat_id = chatId, text = "🔗 Emaily System: Telegram Integration Verified Successfully!", disable_notification = true };
-                using var client = _httpClientFactory.CreateClient();
-                var response = await client.PostAsJsonAsync($"https://api.telegram.org/bot{_botToken}/sendMessage", payload);
-
-                return response.IsSuccessStatusCode;
+                return isSuccess;
             }
-            catch
+            catch (Exception ex)
             {
-                _logger.LogWarning(new Log(userId, "Telegram Integration Verification Failed"));
+                _logger.LogWarning(new Log(userId, $"Telegram Integration Verification Failed: {ex.Message}"));
                 return false;
             }
         }
 
-        private async Task<bool> VerifyGoogleSheetsConfigAsync(Guid userId, string configJson)
+        private async Task<bool> VerifyGoogleSheetsConfigAsync(Guid userId, string sheetUrl)
         {
             try
             {
-                // 1. التحقق من وجود الرابط في الـ JSON
-                using var document = JsonDocument.Parse(configJson);
-                if (!document.RootElement.TryGetProperty("sheetUrl", out var urlProp))
-                {
-                    return false;
-                }
-
-                string sheetUrl = urlProp.GetString()!;
-
                 // 2. استخراج Spreadsheet ID
                 var match = MyRegex().Match(sheetUrl);
                 if (!match.Success)

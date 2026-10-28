@@ -5,6 +5,7 @@ using Emaily.BLL.DTOs.Submission;
 using Emaily.BLL.DTOs.Template;
 using Emaily.BLL.Helpers;
 using Emaily.BLL.Helpers.Interfaces;
+using Emaily.BLL.Helpers.Services;
 using Emaily.BLL.Interfaces;
 using Emaily.DAL.Entities;
 using Emaily.DAL.Interfaces;
@@ -43,18 +44,19 @@ namespace Emaily.BLL.Services
         private readonly IUnitOfWork _uow;
         private readonly IHttpClientFactory _httpClientFactory;
         private readonly IBackgroundJobClient _backgroundJobClient;
+        private readonly IWebhookSenderService _webhookSenderService;
         private readonly IEmailSenderService _emailSenderService;
         private readonly ILoggerService _logger;
         private readonly IAttachmentManager _am;
         private readonly int _pageSize;
         private readonly string _jsonCredentials;
-        private readonly string _botToken;
         private readonly dynamic[] _aiProviders;
 
 
-        public SubmissionService(IUnitOfWork uow, IEmailSenderService emailSenderService, IConfiguration configuration, IHttpClientFactory httpClientFactory, ILoggerService logger, IBackgroundJobClient backgroundJobClient, IAttachmentManager attachmentManager)
+        public SubmissionService(IUnitOfWork uow, IEmailSenderService emailSenderService, IConfiguration configuration, IHttpClientFactory httpClientFactory, ILoggerService logger, IBackgroundJobClient backgroundJobClient, IAttachmentManager attachmentManager, IWebhookSenderService webhookSenderService)
         {
             _uow = uow;
+            _webhookSenderService = webhookSenderService;
             _httpClientFactory = httpClientFactory;
             _emailSenderService = emailSenderService;
             _logger = logger;
@@ -62,7 +64,6 @@ namespace Emaily.BLL.Services
             _am = attachmentManager;
             _pageSize = configuration.GetValue<int>("PageSize");
             _jsonCredentials = configuration["GOOGLE_SHEETS_CREDENTIALS"] ?? throw new InvalidOperationException("GOOGLE_SHEETS_CREDENTIALS environment variable is not set.");
-            _botToken = configuration["TELEGRAM_BOT_TOKEN"] ?? throw new InvalidOperationException("TELEGRAM_BOT_TOKEN environment variable is not set.");
 
 
             _aiProviders =
@@ -708,7 +709,7 @@ namespace Emaily.BLL.Services
                 {
                     if (integration.IntegrationType == Integration.IntegrationTypes.TelegramBot.ToString() && plan.CanUseTelegramBot)
                     {
-                        await ExecuteTelegramBotIntegrationAsync(UserId, integration, sendDto, ResponseDto);
+                        await ExecuteTelegramBotIntegrationAsync(UserId, submission.Id, integration, sendDto, ResponseDto);
                     }
                     else if (integration.IntegrationType == Integration.IntegrationTypes.GoogleSheets.ToString() && plan.CanUseGoogleSheets)
                     {
@@ -838,19 +839,10 @@ namespace Emaily.BLL.Services
             }
         }
 
-        private async Task ExecuteTelegramBotIntegrationAsync(Guid userId, Integration integration, SendEmailDto sendDto, SendEmailResponseDto responseDto)
+        private async Task ExecuteTelegramBotIntegrationAsync(Guid userId, Guid submissionId, Integration integration, SendEmailDto sendDto, SendEmailResponseDto responseDto)
         {
             try
             {
-                using var jsonDocument = JsonDocument.Parse(integration.ConfigJson);
-                if (!jsonDocument.RootElement.TryGetProperty("chatId", out var chatIdElement))
-                {
-                    _logger.LogWarning(new Log(userId, $"'ChatId' key is missing in ConfigJson for integration {integration.Id}."));
-                    return;
-                }
-                string chatId = chatIdElement.GetString()!;
-
-                // 3. بناء نص الرسالة التنبيهية بتنسيق HTML لتكون منظمة وسهلة القراءة
                 string statusIcon = responseDto.Success ? "✅" : "❌";
                 string statusText = responseDto.Success ? "نجاح" : "فشل";
 
@@ -862,61 +854,38 @@ namespace Emaily.BLL.Services
 <b>الموضوع:</b> {sendDto.Subject ?? "<i>بدون موضوع</i>"}
 ";
 
-                // إضافة سبب الفشل إن وجد
                 if (!responseDto.Success && !string.IsNullOrEmpty(responseDto.ErrorMessage))
                 {
                     messageText += $"\n<b>الخطأ:</b> <code>{responseDto.ErrorMessage}</code>";
                 }
 
-                // 4. تجهيز الطلب وإرساله إلى Telegram API
-                var payload = new
+                var payload = new BotNotificationPayload
                 {
-                    chat_id = chatId,
-                    text = messageText,
-                    parse_mode = "HTML" // لتفعيل تنسيقات البولد والأكواد
+                    ChatId = integration.ConfigJson,
+                    Text = messageText,
+                    ParseMode = "HTML",
+                    SubmissionId = submissionId
                 };
 
-                string telegramUrl = $"https://api.telegram.org/bot{_botToken}/sendMessage";
-
-                using var client = _httpClientFactory.CreateClient();
-                client.Timeout = TimeSpan.FromSeconds(10); // تحديد وقت أقصى لتجنب تعليق الـ Thread
-
-                var response = await client.PostAsJsonAsync(telegramUrl, payload);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string errorResponse = await response.Content.ReadAsStringAsync();
-                    _logger.LogWarning(new Log(userId, $"Telegram integration failed for {integration.Id}. Status: {response.StatusCode}. Details: {errorResponse}"));
-                }
+                await _webhookSenderService.NotifyBotAsync(TargetEndpointEnum.NewSubmission, payload, userId);
             }
             catch (JsonException ex)
             {
                 _logger.LogError(new Log(userId, $"Failed to parse ConfigJson for Telegram integration {integration.Id}: {ex.Message}"));
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning(new Log(userId, $"Telegram API request timed out for integration {integration.Id}"));
             }
             catch (Exception ex)
             {
                 _logger.LogError(new Log(userId, $"Unexpected error executing Telegram integration {integration.Id}: {ex.Message}"));
             }
         }
-
+       
         private async Task ExecuteGoogleSheetsIntegrationAsync(Guid userId, Integration integration, SendEmailDto sendDto, SendEmailResponseDto responseDto)
         {
 
             try
             {
 
-                using var jsonDocument = JsonDocument.Parse(integration.ConfigJson);
-                if (!jsonDocument.RootElement.TryGetProperty("sheetUrl", out var urlElement))
-                {
-                    _logger.LogWarning(new Log(userId, $"'SheetUrl' key is missing in ConfigJson for integration {integration.Id}.", sendDto.ProjectId));
-                    return;
-                }
-
-                string sheetUrl = urlElement.GetString()!;
+                string sheetUrl = integration.ConfigJson;
 
                 // 2. استخراج الـ Spreadsheet ID من الرابط
                 var match = MyRegex().Match(sheetUrl);
@@ -995,7 +964,6 @@ namespace Emaily.BLL.Services
             return Result<PagedResultDto<SubmissionHistoryDto>>.Success(
             new PagedResultDto<SubmissionHistoryDto>
             {
-                // [.. select-query ] = select-query.ToList()
                 Items = [.. Items.Select(s => new SubmissionHistoryDto
                 {
                     Id = s.Id.ToString(),
