@@ -16,6 +16,7 @@ namespace Emaily.BLL.Helpers
 
             var sanitizer = new HtmlSanitizer();
             sanitizer.AllowedAttributes.Add("role");
+            sanitizer.AllowedAttributes.Add("dir");
             bool isMalicious = false;
 
             // لو المكتبة لقت أي تاج أو كلاس أو ستايل خطر وحاولت تمسحه، هنخلي المتغير بـ true
@@ -39,6 +40,7 @@ namespace Emaily.BLL.Helpers
             var sanitizer = new HtmlSanitizer();
 
             sanitizer.AllowedAttributes.Add("role");
+            sanitizer.AllowedAttributes.Add("dir");
 
             bool isMalicious = false;
 

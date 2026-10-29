@@ -168,7 +168,7 @@ namespace Emaily.BLL.Helpers.Services
 
                 ".jpg" or ".jpeg" => fileBytes.Take(3).SequenceEqual(new byte[] { 0xFF, 0xD8, 0xFF }),
 
-                ".pdf" => fileBytes.Take(4).SequenceEqual(new byte[] { 0x25, 0x50, 0x44, 0x46 }), // تبدأ بـ %PDF
+                ".pdf" => fileBytes.Take(4).SequenceEqual("%PDF"u8.ToArray()), // تبدأ بـ %PDF
 
                 // ملفات DOCX هي في الواقع ملفات ZIP وتبدأ بحروف PK
                 ".docx" => fileBytes.Take(4).SequenceEqual(new byte[] { 0x50, 0x4B, 0x03, 0x04 }) ||

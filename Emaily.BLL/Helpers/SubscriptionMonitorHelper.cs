@@ -131,6 +131,11 @@ namespace Emaily.BLL.Helpers
                 // 2. إيقاف الاشتراك القديم
                 sub.Status = Subscription.Statuses.Expired;
                 sub.RevokeAt = DateTime.UtcNow;
+
+                // 🚀 الحل السحري: فك ارتباط الكيانات عشان Update ما تضربش تصادم
+                sub.Plan = null!;
+                sub.User = null!;
+
                 uow.Subscriptions.Update(sub);
 
                 // 3. إنشاء اشتراك جديد بالخطة المجانية
